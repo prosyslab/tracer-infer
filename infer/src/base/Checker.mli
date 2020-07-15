@@ -9,6 +9,7 @@ open! IStd
 
 type t =
   | AnnotationReachability
+  | APIMisuse
   | Biabduction
   | BufferOverrunAnalysis
   | BufferOverrunChecker

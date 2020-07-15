@@ -269,6 +269,8 @@ let array_out_of_bounds_l3 =
   register_hidden ~enabled:false ~id:"ARRAY_OUT_OF_BOUNDS_L3" Warning Biabduction
 
 
+let api_misuse = register ~id:"API_MISUSE" Error APIMisuse ~user_documentation:""
+
 let assert_failure = register_hidden ~id:"Assert_failure" Error Biabduction
 
 let _assign_pointer_warning =

@@ -77,6 +77,8 @@ val array_out_of_bounds_l2 : t
 
 val array_out_of_bounds_l3 : t
 
+val api_misuse : t
+
 val assert_failure : t
 
 val bad_footprint : t
