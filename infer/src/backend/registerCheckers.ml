@@ -67,7 +67,12 @@ type checker = {checker: Checker.t; callbacks: (callback_fun * Language.t) list}
 let all_checkers =
   (* The order of the list is important for those checkers that depend on other checkers having run
      before them. *)
-  [ {checker= SelfInBlock; callbacks= [(intraprocedural SelfInBlock.checker, Clang)]}
+  [ { checker= APIMisuse
+    ; callbacks=
+        [ ( interprocedural2 Payloads.Fields.api_misuse_checker
+              Payloads.Fields.buffer_overrun_analysis APIMisuseChecker.checker
+          , Clang ) ] }
+  ; {checker= SelfInBlock; callbacks= [(intraprocedural SelfInBlock.checker, Clang)]}
   ; { checker= BufferOverrunAnalysis
     ; callbacks=
         (let bo_analysis =

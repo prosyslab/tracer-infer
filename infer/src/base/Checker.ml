@@ -10,6 +10,7 @@ module L = Die
 
 type t =
   | AnnotationReachability
+  | APIMisuse
   | Biabduction
   | BufferOverrunAnalysis
   | BufferOverrunChecker
@@ -85,6 +86,15 @@ let config_unsafe checker =
       ; cli_flags= Some {deprecated= []; show_in_help= true}
       ; enabled_by_default= false
       ; activates= [] }
+  | APIMisuse ->
+      { id= "api-misuse"
+      ; kind=  UserFacing {title="API Misuse"; markdown_body=""}
+      ; support= supports_clang
+      ; short_documentation= "API Misuse"
+      ; cli_flags= Some {deprecated= []; show_in_help= true}
+      ; enabled_by_default= false
+      ; activates= [BufferOverrunAnalysis]
+      }
   | Biabduction ->
       { id= "biabduction"
       ; kind=
@@ -93,7 +103,7 @@ let config_unsafe checker =
             ; markdown_body=
                 "Read more about its foundations in the [Separation Logic and Biabduction \
                  page](separation-logic-and-bi-abduction)." }
-      ; support= supports_clang_and_java
+       ; support= supports_clang_and_java
       ; short_documentation=
           "This analysis deals with a range of issues, many linked to memory safety."
       ; cli_flags= Some {deprecated= []; show_in_help= true}

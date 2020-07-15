@@ -14,6 +14,7 @@ include sig
   (** analysis results *)
   type t =
     { annot_map: AnnotationReachabilityDomain.t option
+    ; api_misuse_checker: APIMisuseDomain.Summary.t option
     ; biabduction: BiabductionSummary.t option
     ; buffer_overrun_analysis: BufferOverrunAnalysisSummary.t option
     ; buffer_overrun_checker: BufferOverrunCheckerSummary.t option
