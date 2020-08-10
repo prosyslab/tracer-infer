@@ -2,7 +2,7 @@ open! IStd
 module Dom = APIMisuseDomain
 module Mem = APIMisuseDomain.Mem
 
-let rec eval_locs : Exp.t -> Mem.t -> Dom.PowLocWithIdx.t =
+let eval_locs : Exp.t -> Mem.t -> Dom.PowLocWithIdx.t =
  fun exp mem ->
   match exp with
   | Var id ->
