@@ -9,7 +9,6 @@ let eval_locs : Exp.t -> Mem.t -> Dom.PowLocWithIdx.t =
       Var.of_id id |> AbsLoc.Loc.of_var |> Dom.LocWithIdx.of_loc |> Fun.flip Mem.find mem
       |> Dom.Val.get_powloc
   | Lvar pvar ->
-      pvar |> AbsLoc.Loc.of_pvar |> Dom.LocWithIdx.of_loc |> Fun.flip Mem.find mem
-      |> Dom.Val.get_powloc
+      pvar |> AbsLoc.Loc.of_pvar |> Dom.LocWithIdx.of_loc |> Dom.PowLocWithIdx.singleton
   | _ ->
       Dom.PowLocWithIdx.empty
