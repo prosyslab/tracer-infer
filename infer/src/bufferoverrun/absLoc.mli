@@ -94,6 +94,8 @@ module Loc : sig
 
   val is_unknown : t -> bool
 
+  val is_symbol : t -> bool
+
   val represents_multiple_values : t -> bool
 
   val is_objc_collection_internal_array : t -> bool

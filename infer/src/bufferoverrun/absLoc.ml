@@ -64,6 +64,8 @@ module Allocsite = struct
 
   let get_literal_string = function LiteralString s -> Some s | _ -> None
 
+  let is_symbol = function Symbol _ -> true | _ -> false
+
   let is_unknown = function Unknown -> true | Symbol _ | Known _ | LiteralString _ -> false
 
   let make :
@@ -163,6 +165,8 @@ module Loc = struct
 
 
   let unknown = of_allocsite Allocsite.unknown
+
+  let is_symbol = function BoField.Prim (Allocsite a) -> Allocsite.is_symbol a | _ -> false
 
   let rec is_unknown = function
     | BoField.Prim (Var _) ->
