@@ -83,7 +83,8 @@ module Models = struct
     let open ProcnameDispatcher.Call in
     make_dispatcher
       [ -"std" &:: "map" < capt_all >:: "operator[]" $ capt_arg $+ capt_arg $!--> at
-      ; -"std" &:: "map" < capt_all >:: "map" $ capt_arg $+? any_arg $!--> constructor ]
+      ; -"std" &:: "map" < capt_all >:: "map" $ capt_arg $+? any_arg $+? any_arg $+? any_arg
+        $!--> constructor ]
 end
 
 type analysis_data =
