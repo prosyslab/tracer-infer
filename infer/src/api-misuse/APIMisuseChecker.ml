@@ -238,13 +238,17 @@ let collect get_summary get_formals inv_map cfg =
 
 
 let report {InterproceduralAnalysis.proc_desc; err_log} condset =
-  APIDom.CondSet.iter
-    (fun cond ->
-      if APIDom.Cond.is_symbolic cond || APIDom.Cond.is_init cond then ()
+  APIDom.CondSet.fold
+    (fun cond condset ->
+      if APIDom.Cond.is_symbolic cond || APIDom.Cond.is_init cond || APIDom.Cond.is_reported cond
+      then APIDom.CondSet.add cond condset
       else
-        Reporting.log_issue proc_desc err_log ~loc:cond.loc APIMisuse IssueType.api_misuse
-          "API Misuse" )
-    condset
+        let _ =
+          Reporting.log_issue proc_desc err_log ~loc:cond.loc APIMisuse IssueType.api_misuse
+            "API Misuse"
+        in
+        APIDom.CondSet.add (APIDom.Cond.reported cond) condset )
+    condset APIDom.CondSet.empty
 
 
 let compute_summary ({InterproceduralAnalysis.analyze_dependency} as analysis_data) cfg inv_map =
@@ -256,8 +260,7 @@ let compute_summary ({InterproceduralAnalysis.analyze_dependency} as analysis_da
   in
   match Analyzer.extract_post exit_node_id inv_map with
   | Some mem ->
-      let condset = collect get_summary get_formals inv_map cfg in
-      report analysis_data condset ;
+      let condset = collect get_summary get_formals inv_map cfg |> report analysis_data in
       Some (APIDom.Summary.make mem condset)
   | None ->
       None
