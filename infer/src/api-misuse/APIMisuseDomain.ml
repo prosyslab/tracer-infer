@@ -146,11 +146,16 @@ module Mem = struct
 end
 
 module Cond = struct
-  type t = {absloc: LocWithIdx.t; init: Init.t; loc: Location.t} [@@deriving compare]
+  type t = {absloc: LocWithIdx.t; init: Init.t; loc: Location.t; reported: bool}
+  [@@deriving compare]
 
-  let make absloc init loc = {absloc; init; loc}
+  let make absloc init loc = {absloc; init; loc; reported= false}
+
+  let reported cond = {cond with reported= true}
 
   let is_symbolic cond = LocWithIdx.is_symbolic cond.absloc
+
+  let is_reported cond = cond.reported
 
   let is_init cond = Init.equal Init.Init cond.init
 
