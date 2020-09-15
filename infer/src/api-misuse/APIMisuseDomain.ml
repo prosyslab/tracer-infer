@@ -1,6 +1,7 @@
 module F = Format
 module L = Logging
 open AbsLoc
+module CFG = ProcCfg.NormalOneInstrPerNode
 
 module Init = struct
   type t = Bot | Init | UnInit | Top [@@deriving compare, equal]
@@ -83,14 +84,71 @@ module PowLocWithIdx = struct
   let leq ~lhs ~rhs = subset lhs rhs
 end
 
+module IntOverflow = struct
+  type t = Bot | Top [@@deriving compare, equal]
+
+  let to_string = function Bot -> "No Overflow" | Top -> "May Overflow"
+
+  let bottom = Bot
+
+  let top = Top
+
+  let leq ~lhs ~rhs = match (lhs, rhs) with Bot, _ -> true | Top, Bot -> false | Top, Top -> true
+
+  let join x y = match (x, y) with Bot, Bot -> Bot | Top, _ | _, Top -> Top
+
+  let meet x y = match (x, y) with Bot, _ -> Bot | _, Bot -> Bot | _ -> Top
+
+  let is_bot x = equal x Bot
+
+  let widen ~prev ~next ~num_iters:_ = join prev next
+
+  let narrow = meet
+
+  let pp fmt x = F.fprintf fmt "%s" (to_string x)
+end
+
+module UserInput = struct
+  module Source = struct
+    type t = CFG.Node.id * Location.t
+
+    let compare x y = CFG.Node.compare_id (fst x) (fst y)
+
+    let pp fmt (n, l) = F.fprintf fmt "%a @ %a" CFG.Node.pp_id n Location.pp l
+  end
+
+  include PrettyPrintable.MakePPSet (Source)
+
+  let bottom = empty
+
+  let join = union
+
+  let widen ~prev ~next ~num_iters:_ = join prev next
+
+  let leq ~lhs ~rhs = subset lhs rhs
+
+  let make node loc = singleton (node, loc)
+
+  let is_bot = is_empty
+
+  let is_taint x = not (is_bot x)
+end
+
 module Val = struct
-  type t = {powloc: PowLocWithIdx.t; init: Init.t} [@@deriving compare]
+  type t =
+    {powloc: PowLocWithIdx.t; init: Init.t; int_overflow: IntOverflow.t; user_input: UserInput.t}
+  [@@deriving compare]
 
-  let bottom = {powloc= PowLocWithIdx.bottom; init= Init.bottom}
+  let bottom =
+    { powloc= PowLocWithIdx.bottom
+    ; init= Init.bottom
+    ; int_overflow= IntOverflow.bottom
+    ; user_input= UserInput.bottom }
 
-  let of_pow_loc powloc = {powloc; init= Init.bottom}
 
-  let of_init init = {powloc= PowLocWithIdx.empty; init}
+  let of_pow_loc powloc = {bottom with powloc}
+
+  let of_init init = {bottom with init}
 
   let matcher = QualifiedCppName.Match.of_fuzzy_qual_names ["std::map"]
 
@@ -118,19 +176,29 @@ module Val = struct
   let get_init v = v.init
 
   let join lhs rhs =
-    {powloc= PowLocWithIdx.join lhs.powloc rhs.powloc; init= Init.join lhs.init rhs.init}
+    { powloc= PowLocWithIdx.join lhs.powloc rhs.powloc
+    ; init= Init.join lhs.init rhs.init
+    ; int_overflow= IntOverflow.join lhs.int_overflow rhs.int_overflow
+    ; user_input= UserInput.join lhs.user_input rhs.user_input }
 
 
   let widen ~prev ~next ~num_iters =
     { powloc= PowLocWithIdx.widen ~prev:prev.powloc ~next:next.powloc ~num_iters
-    ; init= Init.widen ~prev:prev.init ~next:next.init ~num_iters }
+    ; init= Init.widen ~prev:prev.init ~next:next.init ~num_iters
+    ; int_overflow= IntOverflow.widen ~prev:prev.int_overflow ~next:next.int_overflow ~num_iters
+    ; user_input= UserInput.widen ~prev:prev.user_input ~next:next.user_input ~num_iters }
 
 
   let leq ~lhs ~rhs =
-    PowLocWithIdx.leq ~lhs:lhs.powloc ~rhs:rhs.powloc && Init.leq ~lhs:lhs.init ~rhs:rhs.init
+    PowLocWithIdx.leq ~lhs:lhs.powloc ~rhs:rhs.powloc
+    && Init.leq ~lhs:lhs.init ~rhs:rhs.init
+    && IntOverflow.leq ~lhs:lhs.int_overflow ~rhs:rhs.int_overflow
+    && UserInput.leq ~lhs:lhs.user_input ~rhs:rhs.user_input
 
 
-  let pp fmt v = F.fprintf fmt "{powloc: %a, init: %a}" PowLocWithIdx.pp v.powloc Init.pp v.init
+  let pp fmt v =
+    F.fprintf fmt "{powloc: %a, init: %a, int_overflow: %a, user_input: %a}" PowLocWithIdx.pp
+      v.powloc Init.pp v.init IntOverflow.pp v.int_overflow UserInput.pp v.user_input
 end
 
 module Mem = struct
