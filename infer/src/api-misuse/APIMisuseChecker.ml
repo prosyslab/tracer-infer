@@ -104,16 +104,13 @@ module TransferFunctions = struct
     match instr with
     | Load {id; e; typ} ->
         (* id is a pure variable. id itself is a valid loc *)
-        let mem =
-          let loc = Loc.of_id id |> APIDom.LocWithIdx.of_loc in
-          let v =
-            APIDom.PowLocWithIdx.fold
-              (fun l v -> APIDom.Mem.find_on_demand ~typ l mem |> APIDom.Val.join v)
-              (Sem.eval_locs e mem) APIDom.Val.bottom
-          in
-          APIDom.Mem.add loc v mem
+        let loc = Loc.of_id id |> APIDom.LocWithIdx.of_loc in
+        let v =
+          APIDom.PowLocWithIdx.fold
+            (fun l v -> APIDom.Mem.find_on_demand ~typ l mem |> APIDom.Val.join v)
+            (Sem.eval_locs e mem) APIDom.Val.bottom
         in
-        mem
+        APIDom.Mem.add loc v mem
     | Prune _ ->
         mem
     | Store {e1; e2} ->
