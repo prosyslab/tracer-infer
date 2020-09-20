@@ -82,6 +82,8 @@ module PowLocWithIdx = struct
   let widen ~prev ~next ~num_iters:_ = join prev next
 
   let leq ~lhs ~rhs = subset lhs rhs
+
+  let of_pow_loc ploc = PowLoc.fold (fun l s -> add (LocWithIdx.of_loc l) s) ploc bottom
 end
 
 module IntOverflow = struct
@@ -101,6 +103,8 @@ module IntOverflow = struct
 
   let is_bot x = equal x Bot
 
+  let is_top x = equal x Top
+
   let widen ~prev ~next ~num_iters:_ = join prev next
 
   let narrow = meet
@@ -110,11 +114,11 @@ end
 
 module UserInput = struct
   module Source = struct
-    type t = CFG.Node.id * Location.t
+    type t = CFG.Node.t * Location.t
 
-    let compare x y = CFG.Node.compare_id (fst x) (fst y)
+    let compare x y = CFG.Node.compare_id (fst x |> CFG.Node.id) (fst y |> CFG.Node.id)
 
-    let pp fmt (n, l) = F.fprintf fmt "%a @ %a" CFG.Node.pp_id n Location.pp l
+    let pp fmt (n, l) = F.fprintf fmt "%a @ %a" CFG.Node.pp_id (CFG.Node.id n) Location.pp l
   end
 
   include PrettyPrintable.MakePPSet (Source)
@@ -150,6 +154,10 @@ module Val = struct
 
   let of_init init = {bottom with init}
 
+  let of_int_overflow int_overflow = {bottom with int_overflow}
+
+  let of_user_input user_input = {bottom with user_input}
+
   let matcher = QualifiedCppName.Match.of_fuzzy_qual_names ["std::map"]
 
   let on_demand ?typ loc =
@@ -174,6 +182,8 @@ module Val = struct
   let get_powloc v = v.powloc
 
   let get_init v = v.init
+
+  let get_int_overflow v = v.int_overflow
 
   let join lhs rhs =
     { powloc= PowLocWithIdx.join lhs.powloc rhs.powloc
@@ -214,46 +224,71 @@ module Mem = struct
 end
 
 module Cond = struct
-  type t = {absloc: LocWithIdx.t; init: Init.t; loc: Location.t; reported: bool}
+  type t =
+    | UnInit of {absloc: LocWithIdx.t; init: Init.t; loc: Location.t; reported: bool}
+    | Overflow of {size: IntOverflow.t; loc: Location.t; reported: bool}
   [@@deriving compare]
 
-  let make absloc init loc = {absloc; init; loc; reported= false}
+  let make_uninit absloc init loc = UnInit {absloc; init; loc; reported= false}
 
-  let reported cond = {cond with reported= true}
+  let make_overflow size loc = Overflow {size; loc; reported= false}
 
-  let is_symbolic cond = LocWithIdx.is_symbolic cond.absloc
-
-  let is_reported cond = cond.reported
-
-  let is_init cond = Init.equal Init.Init cond.init
-
-  let subst eval_sym mem cond =
-    match cond.absloc with
-    | Loc l ->
-        let evals = eval_sym l in
-        if AbsLoc.PowLoc.is_bot evals then [cond]
-        else
-          AbsLoc.PowLoc.fold
-            (fun l lst ->
-              let absloc = LocWithIdx.of_loc l in
-              let init = Mem.find absloc mem |> Val.get_init in
-              {cond with absloc; init} :: lst )
-            evals []
-    | Idx (l, i) ->
-        let evals = eval_sym l in
-        if AbsLoc.PowLoc.is_bot evals then [cond]
-        else
-          AbsLoc.PowLoc.fold
-            (fun l lst ->
-              let absloc = LocWithIdx.of_idx l i in
-              let init = Mem.find absloc mem |> Val.get_init in
-              {cond with absloc; init} :: lst )
-            evals []
+  let reported = function
+    | UnInit cond ->
+        UnInit {cond with reported= true}
+    | Overflow cond ->
+        Overflow {cond with reported= true}
 
 
-  let pp fmt cond =
-    F.fprintf fmt "{absloc: %a, init: %a, loc: %a}" LocWithIdx.pp cond.absloc Init.pp cond.init
-      Location.pp cond.loc
+  let is_symbolic = function
+    | UnInit cond ->
+        LocWithIdx.is_symbolic cond.absloc
+    | Overflow _ ->
+        (* TODO *)
+        false
+
+
+  let get_location = function UnInit cond -> cond.loc | Overflow cond -> cond.loc
+
+  let is_reported = function UnInit cond -> cond.reported | Overflow cond -> cond.reported
+
+  let is_init = function UnInit cond -> Init.equal Init.Init cond.init | _ -> false
+
+  let may_overflow = function Overflow cond -> IntOverflow.is_top cond.size | _ -> false
+
+  let subst eval_sym mem = function
+    | UnInit cond -> (
+      match cond.absloc with
+      | Loc l ->
+          let evals = eval_sym l in
+          if AbsLoc.PowLoc.is_bot evals then [UnInit cond]
+          else
+            AbsLoc.PowLoc.fold
+              (fun l lst ->
+                let absloc = LocWithIdx.of_loc l in
+                let init = Mem.find absloc mem |> Val.get_init in
+                UnInit {cond with absloc; init} :: lst )
+              evals []
+      | Idx (l, i) ->
+          let evals = eval_sym l in
+          if AbsLoc.PowLoc.is_bot evals then [UnInit cond]
+          else
+            AbsLoc.PowLoc.fold
+              (fun l lst ->
+                let absloc = LocWithIdx.of_idx l i in
+                let init = Mem.find absloc mem |> Val.get_init in
+                UnInit {cond with absloc; init} :: lst )
+              evals [] )
+    | Overflow cond ->
+        [Overflow cond]
+
+
+  let pp fmt = function
+    | UnInit cond ->
+        F.fprintf fmt "{absloc: %a, init: %a, loc: %a}" LocWithIdx.pp cond.absloc Init.pp cond.init
+          Location.pp cond.loc
+    | Overflow cond ->
+        F.fprintf fmt "{loc: %a}" Location.pp cond.loc
 end
 
 module CondSet = struct
