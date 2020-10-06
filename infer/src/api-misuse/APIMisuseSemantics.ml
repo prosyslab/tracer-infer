@@ -50,23 +50,21 @@ and eval_binop bop e1 e2 mem =
   let v1 = eval e1 mem in
   let v2 = eval e2 mem in
   match bop with
-  | Binop.Shiftlt | Binop.PlusA (Some IInt) | Binop.Mult (Some IInt)
-    ->
+  | Binop.Shiftlt | Binop.PlusA (Some IInt) | Binop.Mult (Some IInt) ->
       let overflow v =
-        if v.Val.user_input |> Dom.UserInput.is_taint
+        if v.Val.user_input |> Dom.UserInput.is_taint || v.Val.user_input |> Dom.UserInput.is_symbol
         then Dom.IntOverflow.top
         else Dom.IntOverflow.bottom
-        |> Dom.IntOverflow.join v.Val.int_overflow
       in
       { Val.bottom with
         Val.init= Dom.Init.join v1.Val.init v2.Val.init
       ; user_input= Dom.UserInput.join v1.Val.user_input v2.Val.user_input
       ; int_overflow= Dom.IntOverflow.join (overflow v1) (overflow v2) }
   | _ ->
-    { Val.bottom with
-      Val.init= Dom.Init.join v1.Val.init v2.Val.init
-    ; user_input= Dom.UserInput.join v1.Val.user_input v2.Val.user_input
-    ; int_overflow= Dom.IntOverflow.join v1.Val.int_overflow v2.Val.int_overflow }
+      { Val.bottom with
+        Val.init= Dom.Init.join v1.Val.init v2.Val.init
+      ; user_input= Dom.UserInput.join v1.Val.user_input v2.Val.user_input
+      ; int_overflow= Dom.IntOverflow.join v1.Val.int_overflow v2.Val.int_overflow }
 
 
 and eval_unop _ e mem = eval e mem

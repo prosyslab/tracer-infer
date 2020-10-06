@@ -87,17 +87,38 @@ module PowLocWithIdx = struct
 end
 
 module IntOverflow = struct
-  type t = Bot | Top [@@deriving compare, equal]
+  type t = Bot | Top | Symbol of Symb.SymbolPath.partial [@@deriving compare, equal]
 
-  let to_string = function Bot -> "No Overflow" | Top -> "May Overflow"
+  let to_string = function
+    | Bot ->
+        "No Overflow"
+    | Top ->
+        "May Overflow"
+    | Symbol s ->
+        F.asprintf "%a" Symb.SymbolPath.pp_partial s
+
 
   let bottom = Bot
 
   let top = Top
 
-  let leq ~lhs ~rhs = match (lhs, rhs) with Bot, _ -> true | Top, Bot -> false | Top, Top -> true
+  let leq ~lhs ~rhs =
+    match (lhs, rhs) with
+    | Bot, _ ->
+        true
+    | Top, Bot ->
+        false
+    | Top, Top ->
+        true
+    | Symbol _, _ ->
+        false
+    | _, Symbol _ ->
+        true
 
-  let join x y = match (x, y) with Bot, Bot -> Bot | Top, _ | _, Top -> Top
+
+  let join x y =
+    match (x, y) with Bot, _ -> y | _, Bot -> x | Top, _ | _, Top -> Top | Symbol _, Symbol _ -> x
+
 
   let meet x y = match (x, y) with Bot, _ -> Bot | _, Bot -> Bot | _ -> Top
 
@@ -108,6 +129,8 @@ module IntOverflow = struct
   let widen ~prev ~next ~num_iters:_ = join prev next
 
   let narrow = meet
+
+  let make_symbol p = Symbol p
 
   let pp fmt x = F.fprintf fmt "%s" (to_string x)
 end
@@ -121,21 +144,63 @@ module UserInput = struct
     let pp fmt (n, l) = F.fprintf fmt "%a @ %a" CFG.Node.pp_id (CFG.Node.id n) Location.pp l
   end
 
-  include PrettyPrintable.MakePPSet (Source)
+  module Set = PrettyPrintable.MakePPSet (Source)
 
-  let bottom = empty
+  type t = Set of Set.t | Symbol of Symb.SymbolPath.partial [@@deriving compare, equal]
 
-  let join = union
+  let bottom = Set Set.empty
+
+  let is_bot = function Set s -> Set.is_empty s | _ -> false
+
+  let is_symbol = function Symbol _ -> true | _ -> false
+
+  let join x y =
+    match (x, y) with
+    | _, _ when is_bot x ->
+        y
+    | _, _ when is_bot y ->
+        x
+    | Set s1, Set s2 ->
+        Set (Set.union s1 s2)
+    | Symbol _, Symbol _ ->
+        y
+    | Set _, Symbol _ ->
+        x
+    | Symbol _, Set _ ->
+        y
+
 
   let widen ~prev ~next ~num_iters:_ = join prev next
 
-  let leq ~lhs ~rhs = subset lhs rhs
+  let leq ~lhs ~rhs =
+    match (lhs, rhs) with
+    | Set s1, Set s2 ->
+        Set.subset s1 s2
+    | Set _, Symbol _ ->
+        false
+    | _, _ ->
+        true
 
-  let make node loc = singleton (node, loc)
 
-  let is_bot = is_empty
+  let make node loc = Set (Set.singleton (node, loc))
 
-  let is_taint x = not (is_bot x)
+  let is_taint = function Set x -> not (Set.is_empty x) | Symbol _ -> false
+
+  let make_symbol p = Symbol p
+
+  let pp fmt = function Set s -> Set.pp fmt s | Symbol s -> Symb.SymbolPath.pp_partial fmt s
+end
+
+module Subst = struct
+  type subst =
+    { subst_powloc: Loc.t -> PowLoc.t
+    ; subst_int_overflow: IntOverflow.t -> IntOverflow.t
+    ; subst_user_input: UserInput.t -> UserInput.t }
+
+  let empty =
+    { subst_powloc= (fun _ -> AbsLoc.PowLoc.bot)
+    ; subst_int_overflow= Fun.id
+    ; subst_user_input= Fun.id }
 end
 
 module Val = struct
@@ -162,20 +227,28 @@ module Val = struct
 
   let on_demand ?typ loc =
     let open Typ in
-    match typ with
-    | Some {Typ.desc= Tptr ({desc= Tstruct (CppClass (name, _))}, _)}
-      when QualifiedCppName.Match.match_qualifiers matcher name -> (
-        L.d_printfln_escaped "Val.on_demand for %a (%a)" LocWithIdx.pp loc QualifiedCppName.pp name ;
-        match LocWithIdx.to_loc loc |> Loc.get_path with
-        | None ->
-            L.d_printfln_escaped "Path none" ;
-            bottom
-        | Some p ->
-            L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
+    match LocWithIdx.to_loc loc |> Loc.get_path with
+    | Some p -> (
+      match typ with
+      | Some {Typ.desc= Tptr ({desc= Tstruct (CppClass (name, _))}, _)}
+        when QualifiedCppName.Match.match_qualifiers matcher name ->
+          L.d_printfln_escaped "Val.on_demand for %a (%a)" LocWithIdx.pp loc QualifiedCppName.pp
+            name ;
+          L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
+          let powloc =
             Allocsite.make_symbol p |> Loc.of_allocsite |> LocWithIdx.of_loc
-            |> PowLocWithIdx.singleton |> of_pow_loc )
-    | _ ->
-        L.d_printfln_escaped "Val.on_demand for %a (Others)" LocWithIdx.pp loc ;
+            |> PowLocWithIdx.singleton
+          in
+          let int_overflow = IntOverflow.make_symbol p in
+          let user_input = UserInput.make_symbol p in
+          {bottom with powloc; int_overflow; user_input}
+      | _ ->
+          L.d_printfln_escaped "Val.on_demand for %a (Others)" LocWithIdx.pp loc ;
+          let int_overflow = IntOverflow.make_symbol p in
+          let user_input = UserInput.make_symbol p in
+          {bottom with int_overflow; user_input} )
+    | None ->
+        L.d_printfln_escaped "Path none" ;
         bottom
 
 
@@ -184,6 +257,8 @@ module Val = struct
   let get_init v = v.init
 
   let get_int_overflow v = v.int_overflow
+
+  let get_user_input v = v.user_input
 
   let join lhs rhs =
     { powloc= PowLocWithIdx.join lhs.powloc rhs.powloc
@@ -206,6 +281,12 @@ module Val = struct
     && UserInput.leq ~lhs:lhs.user_input ~rhs:rhs.user_input
 
 
+  let subst {Subst.subst_int_overflow; subst_user_input} v =
+    { v with
+      int_overflow= subst_int_overflow v.int_overflow
+    ; user_input= subst_user_input v.user_input }
+
+
   let pp fmt v =
     F.fprintf fmt "{powloc: %a, init: %a, int_overflow: %a, user_input: %a}" PowLocWithIdx.pp
       v.powloc Init.pp v.init IntOverflow.pp v.int_overflow UserInput.pp v.user_input
@@ -226,12 +307,14 @@ end
 module Cond = struct
   type t =
     | UnInit of {absloc: LocWithIdx.t; init: Init.t; loc: Location.t; reported: bool}
-    | Overflow of {size: IntOverflow.t; loc: Location.t; reported: bool}
+    | Overflow of {size: IntOverflow.t; user_input: UserInput.t; loc: Location.t; reported: bool}
   [@@deriving compare]
 
   let make_uninit absloc init loc = UnInit {absloc; init; loc; reported= false}
 
-  let make_overflow size loc = Overflow {size; loc; reported= false}
+  let make_overflow {Val.int_overflow; user_input} loc =
+    Overflow {size= int_overflow; user_input; loc; reported= false}
+
 
   let reported = function
     | UnInit cond ->
@@ -254,13 +337,18 @@ module Cond = struct
 
   let is_init = function UnInit cond -> Init.equal Init.Init cond.init | _ -> false
 
-  let may_overflow = function Overflow cond -> IntOverflow.is_top cond.size | _ -> false
+  let may_overflow = function
+    | Overflow cond ->
+        IntOverflow.is_top cond.size && UserInput.is_taint cond.user_input
+    | _ ->
+        false
 
-  let subst eval_sym mem = function
+
+  let subst {Subst.subst_powloc; subst_int_overflow; subst_user_input} mem = function
     | UnInit cond -> (
       match cond.absloc with
       | Loc l ->
-          let evals = eval_sym l in
+          let evals = subst_powloc l in
           if AbsLoc.PowLoc.is_bot evals then [UnInit cond]
           else
             AbsLoc.PowLoc.fold
@@ -270,7 +358,7 @@ module Cond = struct
                 UnInit {cond with absloc; init} :: lst )
               evals []
       | Idx (l, i) ->
-          let evals = eval_sym l in
+          let evals = subst_powloc l in
           if AbsLoc.PowLoc.is_bot evals then [UnInit cond]
           else
             AbsLoc.PowLoc.fold
@@ -280,7 +368,10 @@ module Cond = struct
                 UnInit {cond with absloc; init} :: lst )
               evals [] )
     | Overflow cond ->
-        [Overflow cond]
+        [ Overflow
+            { cond with
+              size= subst_int_overflow cond.size
+            ; user_input= subst_user_input cond.user_input } ]
 
 
   let pp fmt = function

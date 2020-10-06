@@ -14,6 +14,9 @@ module BoDomain = BufferOverrunDomain
 module APIDom = APIMisuseDomain
 module Sem = APIMisuseSemantics
 module CFG = ProcCfg.NormalOneInstrPerNode
+module LocationSet = AbstractDomain.FiniteSet (Location)
+module Summary = APIDom.Summary
+open AbsLoc
 
 type model_env =
   { pname: Procname.t
@@ -110,7 +113,7 @@ module Models = struct
 
   let malloc size =
     let check {location} mem condset =
-      let v = Sem.eval size mem |> APIDom.Val.get_int_overflow in
+      let v = Sem.eval size mem in
       APIDom.CondSet.add (APIDom.Cond.make_overflow v location) condset
     in
     {empty with check}
@@ -127,8 +130,60 @@ module Models = struct
 end
 
 type analysis_data =
-  (APIMisuseDomain.Summary.t option * BufferOverrunAnalysisSummary.t option)
-  InterproceduralAnalysis.t
+  { interproc:
+      (APIMisuseDomain.Summary.t option * BufferOverrunAnalysisSummary.t option)
+      InterproceduralAnalysis.t
+  ; get_summary:
+         Procname.t
+      -> (APIMisuseDomain.Summary.t option * BufferOverrunAnalysisSummary.t option) option
+  ; get_formals: Procname.t -> (Pvar.t * Typ.t) list option }
+
+let get_symbol pvar =
+  match pvar |> Loc.of_pvar |> Loc.get_path with
+  | Some p ->
+      Allocsite.make_symbol p |> Loc.of_allocsite |> Option.some
+  | _ ->
+      None
+
+
+let rec make_subst formals actuals bo_mem mem
+    ({APIDom.Subst.subst_powloc; subst_int_overflow; subst_user_input} as subst) =
+  match (formals, actuals) with
+  | (pvar, _) :: t1, (exp, _) :: t2 -> (
+    match pvar |> Loc.of_pvar |> Loc.get_path with
+    | Some p ->
+        let sym_absloc = Allocsite.make_symbol p |> Loc.of_allocsite in
+        let sym_int_overflow = APIDom.IntOverflow.make_symbol p in
+        let sym_user_input = APIDom.UserInput.make_symbol p in
+        L.(debug Analysis Quiet) "make subst sym: %a" AbsLoc.Loc.pp sym_absloc ;
+        let v = Sem.eval exp mem in
+        let locs = APIDom.Val.get_powloc v in
+        let locs =
+          APIDom.PowLocWithIdx.fold
+            (fun l s -> APIDom.LocWithIdx.to_loc l |> Fun.flip AbsLoc.PowLoc.add s)
+            locs AbsLoc.PowLoc.bot
+        in
+        let int_overflow = APIDom.Val.get_int_overflow v in
+        let user_input = APIDom.Val.get_user_input v in
+        L.(debug Analysis Quiet) "make subst locs: %a\n" AbsLoc.PowLoc.pp locs ;
+        L.(debug Analysis Quiet) "make subst int overflow: %a\n" APIDom.IntOverflow.pp int_overflow ;
+        L.(debug Analysis Quiet) "make subst user input: %a\n" APIDom.UserInput.pp user_input ;
+        { APIDom.Subst.subst_powloc=
+            (fun s -> if AbsLoc.Loc.equal s sym_absloc then locs else subst_powloc s)
+        ; subst_int_overflow=
+            (fun s ->
+              if APIDom.IntOverflow.equal s sym_int_overflow then int_overflow
+              else subst_int_overflow s )
+        ; subst_user_input=
+            (fun s ->
+              if APIDom.UserInput.equal s sym_user_input then user_input else subst_user_input s )
+        }
+        |> make_subst t1 t2 bo_mem mem
+    | _ ->
+        subst )
+  | _, _ ->
+      subst
+
 
 module TransferFunctions = struct
   module CFG = CFG
@@ -138,11 +193,28 @@ module TransferFunctions = struct
 
   open AbsLoc
 
+  let instantiate_mem (ret_id, _) callee_formals callee_pname params bo_mem mem callee_exit_mem =
+    let ret_var = ret_id |> Var.of_id |> Loc.of_var |> APIMisuseDomain.LocWithIdx.of_loc in
+    let subst = make_subst callee_formals params bo_mem mem APIDom.Subst.empty in
+    let ret_val =
+      Domain.find
+        (Loc.of_pvar (Pvar.get_ret_pvar callee_pname) |> APIDom.LocWithIdx.of_loc)
+        callee_exit_mem
+      |> APIDom.Val.subst subst
+    in
+    Domain.add ret_var ret_val mem
+
+
+  (* let eval_sym = make_subst callee_formals args bo_mem_opt mem Subst.empty in
+     L.d_printfln_escaped "Callee summary %a" APIDom.Summary.pp api_summary ;
+     APIDom.CondSet.subst eval_sym mem api_summary.APIDom.Summary.condset
+     |> APIDom.CondSet.join condset Domain.add ret_var ret_val mem*)
+
   let exec_instr : Domain.t -> analysis_data -> CFG.Node.t -> Sil.instr -> Domain.t =
-   fun mem ({proc_desc; tenv} as analysis_data) node instr ->
+   fun mem {interproc= {proc_desc; tenv} as interproc; get_summary; get_formals} node instr ->
     let bo_inv_map =
       BufferOverrunAnalysis.cached_compute_invariant_map
-        (InterproceduralAnalysis.bind_payload analysis_data ~f:snd)
+        (InterproceduralAnalysis.bind_payload interproc ~f:snd)
     in
     let bo_mem_opt = BufferOverrunAnalysis.extract_state (CFG.Node.id node) bo_inv_map in
     match instr with
@@ -162,9 +234,9 @@ module TransferFunctions = struct
         let locs1 = Sem.eval_locs e1 bo_mem_opt mem in
         let v = Sem.eval e2 mem in
         APIDom.PowLocWithIdx.fold (fun l m -> APIDom.Mem.add l v m) locs1 mem
-    | Call (((_, _) as ret), Const (Cfun callee_pname), args, location, _) -> (
+    | Call (((_, _) as ret), Const (Cfun callee_pname), params, location, _) -> (
         let fun_arg_list =
-          List.map args ~f:(fun (exp, typ) ->
+          List.map params ~f:(fun (exp, typ) ->
               ProcnameDispatcher.Call.FuncArg.{exp; typ; arg_payload= ()} )
         in
         match Models.dispatch tenv callee_pname fun_arg_list with
@@ -173,9 +245,15 @@ module TransferFunctions = struct
             let node_hash = CFG.Node.hash node in
             let model_env = {pname; node; node_hash; bo_mem_opt; location} in
             exec model_env ~ret mem
-        | None ->
-            (* TODO: instantiate *)
-            mem )
+        | None -> (
+          match
+            (callee_pname, Tenv.get_summary_formals tenv ~get_summary ~get_formals callee_pname)
+          with
+          | callee_pname, `Found ((Some {mem= exit_mem}, _), callee_formals) ->
+              instantiate_mem ret callee_formals callee_pname params bo_mem_opt mem exit_mem
+          | _, _ ->
+              L.d_printfln_escaped "/!\\ Unknown call to %a" Procname.pp callee_pname ;
+              mem ) )
     | _ ->
         mem
 
@@ -184,42 +262,9 @@ module TransferFunctions = struct
 end
 
 module Analyzer = AbstractInterpreter.MakeRPO (TransferFunctions)
-module LocationSet = AbstractDomain.FiniteSet (Location)
-module Summary = APIDom.Summary
-open AbsLoc
 
-let get_symbol pvar =
-  match pvar |> Loc.of_pvar |> Loc.get_path with
-  | Some p ->
-      Allocsite.make_symbol p |> Loc.of_allocsite |> Option.some
-  | _ ->
-      None
-
-
-let rec make_subst formals actuals bo_mem mem subst =
-  match (formals, actuals) with
-  | (pvar, _) :: t1, (exp, _) :: t2 -> (
-    match get_symbol pvar with
-    | Some sym ->
-        L.(debug Analysis Quiet) "make subst sym: %a" AbsLoc.Loc.pp sym ;
-        let locs =
-          Sem.eval_locs exp bo_mem mem |> Fun.flip APIDom.Mem.find_set mem |> APIDom.Val.get_powloc
-        in
-        let locs =
-          APIDom.PowLocWithIdx.fold
-            (fun l s -> APIDom.LocWithIdx.to_loc l |> Fun.flip AbsLoc.PowLoc.add s)
-            locs AbsLoc.PowLoc.bot
-        in
-        L.(debug Analysis Quiet) "make subst locs: %a" AbsLoc.PowLoc.pp locs ;
-        (fun s -> if AbsLoc.Loc.equal s sym then locs else subst s) |> make_subst t1 t2 bo_mem mem
-    | _ ->
-        subst )
-  | _, _ ->
-      subst
-
-
-let check_instr {InterproceduralAnalysis.tenv; proc_desc} get_summary get_formals bo_mem_opt mem
-    node instr condset =
+let check_instr {interproc= {InterproceduralAnalysis.tenv; proc_desc}; get_summary; get_formals}
+    bo_mem_opt mem node instr condset =
   match instr with
   | Sil.Load {e; loc} ->
       let locs =
@@ -252,9 +297,7 @@ let check_instr {InterproceduralAnalysis.tenv; proc_desc} get_summary get_formal
       | None -> (
         match (get_summary callee_pname, get_formals callee_pname) with
         | Some (Some api_summary, Some _), Some callee_formals ->
-            let eval_sym =
-              make_subst callee_formals args bo_mem_opt mem (fun _ -> AbsLoc.PowLoc.bot)
-            in
+            let eval_sym = make_subst callee_formals args bo_mem_opt mem APIDom.Subst.empty in
             L.d_printfln_escaped "Callee summary %a" APIDom.Summary.pp api_summary ;
             APIDom.CondSet.subst eval_sym mem api_summary.APIDom.Summary.condset
             |> APIDom.CondSet.join condset
@@ -264,34 +307,34 @@ let check_instr {InterproceduralAnalysis.tenv; proc_desc} get_summary get_formal
       condset
 
 
-let collect_instrs analysis_data get_summary get_formals bo_mem mem node instrs condset =
+let collect_instrs analysis_data bo_mem mem node instrs condset =
   if Instrs.is_empty instrs then condset
   else
     let instr = Instrs.nth_exn instrs 0 in
-    check_instr analysis_data get_summary get_formals bo_mem mem node instr condset
+    check_instr analysis_data bo_mem mem node instr condset
 
 
-let collect_node analysis_data get_summary get_formals inv_map node condset =
+let collect_node ({interproc} as analysis_data) inv_map node condset =
   let bo_mem =
     BufferOverrunAnalysis.cached_compute_invariant_map
-      (InterproceduralAnalysis.bind_payload analysis_data ~f:snd)
+      (InterproceduralAnalysis.bind_payload interproc ~f:snd)
     |> BufferOverrunAnalysis.extract_state (CFG.Node.id node)
   in
   match Analyzer.extract_pre (CFG.Node.id node) inv_map with
   | Some mem ->
       let instrs = CFG.instrs node in
-      collect_instrs analysis_data get_summary get_formals bo_mem mem node instrs condset
+      collect_instrs analysis_data bo_mem mem node instrs condset
   | None ->
       condset
 
 
-let collect analysis_data get_summary get_formals inv_map cfg =
+let collect analysis_data inv_map cfg =
   CFG.fold_nodes cfg
-    ~f:(fun condset node -> collect_node analysis_data get_summary get_formals inv_map node condset)
+    ~f:(fun condset node -> collect_node analysis_data inv_map node condset)
     ~init:APIDom.CondSet.empty
 
 
-let report {InterproceduralAnalysis.proc_desc; err_log} condset =
+let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
   APIDom.CondSet.fold
     (fun cond condset ->
       if APIDom.Cond.is_symbolic cond || APIDom.Cond.is_reported cond then
@@ -310,27 +353,26 @@ let report {InterproceduralAnalysis.proc_desc; err_log} condset =
     condset APIDom.CondSet.empty
 
 
-let compute_summary ({InterproceduralAnalysis.analyze_dependency} as analysis_data) cfg inv_map =
-  let open IOption.Let_syntax in
+let compute_summary analysis_data cfg inv_map =
   let exit_node_id = CFG.exit_node cfg |> CFG.Node.id in
-  let get_summary proc_name = analyze_dependency proc_name >>| snd in
-  let get_formals callee_pname =
-    AnalysisCallbacks.get_proc_desc callee_pname >>| Procdesc.get_pvar_formals
-  in
   match Analyzer.extract_post exit_node_id inv_map with
   | Some mem ->
-      let condset =
-        collect analysis_data get_summary get_formals inv_map cfg |> report analysis_data
-      in
+      let condset = collect analysis_data inv_map cfg |> report analysis_data in
       Some (APIDom.Summary.make mem condset)
   | None ->
       None
 
 
-let checker ({InterproceduralAnalysis.proc_desc} as analysis_data) =
+let checker ({InterproceduralAnalysis.proc_desc; analyze_dependency} as analysis_data) =
   BufferOverrunAnalysis.cached_compute_invariant_map
     (InterproceduralAnalysis.bind_payload analysis_data ~f:snd)
   |> ignore ;
+  let open IOption.Let_syntax in
   let cfg = CFG.from_pdesc proc_desc in
+  let get_summary proc_name = analyze_dependency proc_name >>| snd in
+  let get_formals callee_pname =
+    AnalysisCallbacks.get_proc_desc callee_pname >>| Procdesc.get_pvar_formals
+  in
+  let analysis_data = {interproc= analysis_data; get_summary; get_formals} in
   let inv_map = Analyzer.exec_pdesc analysis_data ~initial:APIMisuseDomain.Mem.initial proc_desc in
   compute_summary analysis_data cfg inv_map
