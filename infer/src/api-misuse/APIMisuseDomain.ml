@@ -154,7 +154,7 @@ module UserInput = struct
 
   module Set = PrettyPrintable.MakePPSet (Source)
 
-  type t = Set of Set.t | Symbol of Symb.SymbolPath.partial [@@deriving compare, equal]
+  type t = Top | Set of Set.t | Symbol of Symb.SymbolPath.partial [@@deriving compare, equal]
 
   let bottom = Set Set.empty
 
@@ -171,11 +171,9 @@ module UserInput = struct
     | Set s1, Set s2 ->
         Set (Set.union s1 s2)
     | Symbol _, Symbol _ ->
-        y
-    | Set _, Symbol _ ->
-        x
-    | Symbol _, Set _ ->
-        y
+        if equal x y then x else Top
+    | _, _ ->
+        Top
 
 
   let widen ~prev ~next ~num_iters:_ = join prev next
@@ -186,17 +184,23 @@ module UserInput = struct
         Set.subset s1 s2
     | Set _, Symbol _ ->
         false
-    | _, _ ->
+    | Symbol _, Set _ ->
+        false
+    | Symbol _, Symbol _ ->
+        equal lhs rhs
+    | _, Top ->
         true
+    | _, _ ->
+        false
 
 
   let make node loc = Set (Set.singleton (node, loc))
 
-  let is_taint = function Set x -> not (Set.is_empty x) | Symbol _ -> false
+  let is_taint = function | Top -> true | Set x -> not (Set.is_empty x) | Symbol _ -> false
 
   let make_symbol p = Symbol p
 
-  let pp fmt = function Set s -> Set.pp fmt s | Symbol s -> Symb.SymbolPath.pp_partial fmt s
+  let pp fmt = function Top -> F.fprintf fmt "%s" "Top" | Set s -> Set.pp fmt s | Symbol s -> Symb.SymbolPath.pp_partial fmt s
 end
 
 module Subst = struct
