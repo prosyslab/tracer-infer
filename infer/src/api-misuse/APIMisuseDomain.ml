@@ -110,14 +110,22 @@ module IntOverflow = struct
         false
     | Top, Top ->
         true
-    | Symbol _, _ ->
-        false
-    | _, Symbol _ ->
+    | Symbol _, Symbol _ ->
+        equal lhs rhs
+    | _, _ ->
         true
 
 
   let join x y =
-    match (x, y) with Bot, _ -> y | _, Bot -> x | Top, _ | _, Top -> Top | Symbol _, Symbol _ -> x
+    match (x, y) with
+    | Bot, _ ->
+        y
+    | _, Bot ->
+        x
+    | Top, _ | _, Top ->
+        Top
+    | Symbol _, Symbol _ ->
+        if equal x y then x else Top
 
 
   let meet x y = match (x, y) with Bot, _ -> Bot | _, Bot -> Bot | _ -> Top
