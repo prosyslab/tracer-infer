@@ -23,6 +23,8 @@ let rec eval_locs exp bo_mem mem =
       pvar |> AbsLoc.Loc.of_pvar |> Dom.LocWithIdx.of_loc |> Dom.PowLocWithIdx.singleton
   | Exp.Lindex (e1, _) ->
       bo_eval_locs e1 bo_mem
+  | Exp.Lfield _ ->
+      bo_eval_locs exp bo_mem
   | _ ->
       Dom.PowLocWithIdx.empty
 

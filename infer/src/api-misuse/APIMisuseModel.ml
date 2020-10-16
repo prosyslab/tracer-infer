@@ -81,27 +81,57 @@ let at _ {exp= map_exp} {exp= idx} =
 
 let fread buffer =
   let exec {node; bo_mem_opt; location} ~ret:_ mem =
-    match (buffer, bo_mem_opt) with
-    | Exp.Lvar _, Some bomem | Exp.Var _, Some bomem ->
-        BoSemantics.eval_locs buffer bomem.pre
-        |> Fun.flip
-             (PowLoc.fold (fun l mem ->
-                  let v = Dom.UserInput.make node location |> Dom.Val.of_user_input in
-                  let loc = Dom.LocWithIdx.of_loc l in
-                  Dom.Mem.add loc v mem ))
-             mem
-    | _, _ ->
+    match bo_mem_opt with
+    | Some bomem ->
+        let locs = BoSemantics.eval_locs buffer bomem.pre in
+        PowLoc.fold
+          (fun l mem ->
+            let v = Dom.UserInput.make node location |> Dom.Val.of_user_input in
+            let loc = Dom.LocWithIdx.of_loc l in
+            let mem = Dom.Mem.add loc v mem in
+            Dom.Mem.fold
+              (fun l' _ mem ->
+                match l' with
+                | Loc field when Loc.is_field_of ~loc:l ~field_loc:field ->
+                    Dom.Mem.add l' v mem
+                | _ ->
+                    mem )
+              mem mem )
+          locs mem
+    | _ ->
         mem
   in
   {exec; check= empty_check_fun}
 
 
 let malloc size =
+  let exec {bo_mem_opt} ~ret:_ (mem : Sem.Mem.t) =
+    match bo_mem_opt with
+    | Some bomem ->
+        (* not only the return variable but also all fields in case of struct *)
+        BoDomain.Mem.fold
+          ~f:(fun l v mem ->
+            match BoDomain.Mem.find_opt l bomem.pre with
+            | None ->
+                let loc = Dom.LocWithIdx.of_loc l in
+                let array_locs = BoDomain.Val.get_array_locs v in
+                let pow_locs = BoDomain.Val.get_pow_loc v in
+                let v =
+                  AbsLoc.PowLoc.join array_locs pow_locs
+                  |> Dom.PowLocWithIdx.of_pow_loc |> Dom.Val.of_pow_loc
+                in
+                Dom.Mem.add loc v mem
+            | Some _ ->
+                mem )
+          bomem.post mem
+    | _ ->
+        mem
+  in
   let check {location} mem condset =
     let v = Sem.eval size mem in
     Dom.CondSet.add (Dom.Cond.make_overflow v location) condset
   in
-  {empty with check}
+  {exec; check}
 
 
 let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t list -> 'a =

@@ -1945,6 +1945,8 @@ module MemReach = struct
     ; find_global_array= x.find_global_array }
 
 
+  let fold ~f x a = MemPure.fold f x.mem_pure a
+
   let pp : F.formatter -> _ t0 -> unit =
    fun fmt x ->
     F.fprintf fmt "StackLocs:@;%a@;MemPure:@;%a@;Alias:@;%a@;%a" StackLocs.pp x.stack_locs
@@ -2364,6 +2366,10 @@ module Mem = struct
     | Reachable m ->
         let m' = f m in
         if phys_equal m' m then x else Reachable m'
+
+
+  let fold ~f x a =
+    match x with Unreachable | ExcRaised -> a | Reachable m -> MemReach.fold ~f m a
 
 
   type get_summary = Procname.t -> no_oenv_t option
