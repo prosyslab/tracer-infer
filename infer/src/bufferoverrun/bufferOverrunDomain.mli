@@ -455,6 +455,8 @@ module Mem : sig
 
   val unset_oenv : t -> no_oenv_t
 
+  val fold : f:(AbsLoc.Loc.t -> CoreVal.t -> 'a -> 'a) -> _ t0 -> 'a -> 'a
+
   include AbstractDomain.S with type t := t
 
   val pp : Format.formatter -> _ t0 -> unit
