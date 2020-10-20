@@ -27,58 +27,6 @@ let empty_check_fun _ _ condset = condset
 
 let empty = {exec= empty_exec_fun; check= empty_check_fun}
 
-let constructor _ {exp} =
-  let exec {pname; node_hash} ~ret:_ mem =
-    match exp with
-    | Exp.Lvar v ->
-        let allocsite =
-          Allocsite.make pname ~node_hash ~inst_num:0 ~dimension:1 ~path:None
-            ~represents_multiple_values:false
-        in
-        let loc = Loc.of_pvar v |> Dom.LocWithIdx.of_loc in
-        let v =
-          Loc.of_allocsite allocsite |> Dom.LocWithIdx.of_loc |> Dom.PowLocWithIdx.singleton
-          |> Dom.Val.of_pow_loc
-        in
-        Dom.Mem.add loc v mem
-    | _ ->
-        L.user_warning "Invalid argument of std::map" ;
-        mem
-  in
-  {exec; check= empty_check_fun}
-
-
-let at _ {exp= map_exp} {exp= idx} =
-  let eval_maploc map_exp mem =
-    match map_exp with
-    | Exp.Lvar v ->
-        Loc.of_pvar v |> Dom.LocWithIdx.of_loc |> Fun.flip Dom.Mem.find mem |> Dom.Val.get_powloc
-    | Exp.Var id ->
-        Loc.of_id id |> Dom.LocWithIdx.of_loc |> Fun.flip Dom.Mem.find mem |> Dom.Val.get_powloc
-    | _ ->
-        L.die Die.InternalError "Unreachable"
-  in
-  let exec {bo_mem_opt} ~ret mem =
-    match (map_exp, bo_mem_opt) with
-    | Exp.Lvar _, Some bomem | Exp.Var _, Some bomem ->
-        let idx_val =
-          BoSemantics.eval_locs idx bomem.post
-          |> Fun.flip BoDomain.Mem.find_set bomem.pre
-          |> BoDomain.Val.get_itv
-        in
-        let retloc = fst ret |> Loc.of_id |> Dom.LocWithIdx.of_loc in
-        let maploc = eval_maploc map_exp mem in
-        let v =
-          Dom.PowLocWithIdx.map (Fun.flip Dom.LocWithIdx.append_idx idx_val) maploc
-          |> Dom.Val.of_pow_loc
-        in
-        Dom.Mem.add retloc v mem
-    | _, _ ->
-        mem
-  in
-  {exec; check= empty_check_fun}
-
-
 let fread buffer =
   let exec {node; bo_mem_opt; location} ~ret:_ mem =
     match bo_mem_opt with
@@ -134,11 +82,120 @@ let malloc size =
   {exec; check}
 
 
+module StdMap = struct
+  let constructor exp =
+    let exec {pname; node_hash} ~ret:_ mem =
+      match exp with
+      | Exp.Lvar v ->
+          let allocsite =
+            Allocsite.make pname ~node_hash ~inst_num:0 ~dimension:1 ~path:None
+              ~represents_multiple_values:false
+          in
+          let loc = Loc.of_pvar v |> Dom.LocWithIdx.of_loc in
+          let v =
+            Loc.of_allocsite allocsite |> Dom.LocWithIdx.of_loc |> Dom.PowLocWithIdx.singleton
+            |> Dom.Val.of_pow_loc
+          in
+          Dom.Mem.add loc v mem
+      | _ ->
+          L.user_warning "Invalid argument of std::map" ;
+          mem
+    in
+    {exec; check= empty_check_fun}
+
+
+  let at map_exp idx =
+    let eval_maploc map_exp mem =
+      match map_exp with
+      | Exp.Lvar v ->
+          Loc.of_pvar v |> Dom.LocWithIdx.of_loc |> Fun.flip Dom.Mem.find mem |> Dom.Val.get_powloc
+      | Exp.Var id ->
+          Loc.of_id id |> Dom.LocWithIdx.of_loc |> Fun.flip Dom.Mem.find mem |> Dom.Val.get_powloc
+      | _ ->
+          L.die Die.InternalError "Unreachable"
+    in
+    let exec {bo_mem_opt} ~ret mem =
+      match (map_exp, bo_mem_opt) with
+      | Exp.Lvar _, Some bomem | Exp.Var _, Some bomem ->
+          let idx_itv_val =
+            BoSemantics.eval_locs idx bomem.post
+            |> Fun.flip BoDomain.Mem.find_set bomem.pre
+            |> BoDomain.Val.get_itv |> Dom.Idx.of_itv
+          in
+          let idx_str_val = Sem.eval idx mem |> Dom.Val.get_str |> Dom.Idx.of_str in
+          let idx_val = Dom.Idx.join idx_itv_val idx_str_val in
+          let retloc = fst ret |> Loc.of_id |> Dom.LocWithIdx.of_loc in
+          let maploc = eval_maploc map_exp mem in
+          let v =
+            Dom.PowLocWithIdx.map (Fun.flip Dom.LocWithIdx.append_idx idx_val) maploc
+            |> Dom.Val.of_pow_loc
+          in
+          Dom.Mem.add retloc v mem
+      | _, _ ->
+          mem
+    in
+    {exec; check= empty_check_fun}
+end
+
+module BasicString = struct
+  let constructor allocator s =
+    let exec {bo_mem_opt} ~ret:(id, _) mem =
+      match s with
+      | Exp.Const (Const.Cstr s) ->
+          let allocator_locs = Sem.eval_locs allocator bo_mem_opt mem in
+          let loc = id |> Loc.of_id |> Dom.LocWithIdx.of_loc in
+          let v = s |> Dom.Str.make |> Dom.Val.of_str in
+          let mem = Dom.Mem.add loc v mem in
+          Dom.PowLocWithIdx.fold (fun l mem -> Dom.Mem.add l v mem) allocator_locs mem
+      | _ ->
+          mem
+    in
+    {exec; check= empty_check_fun}
+
+
+  let check_uninit exp mem location condset =
+    let locs =
+      Sem.eval exp mem |> Dom.Val.get_powloc
+      |> Dom.PowLocWithIdx.filter (function Dom.LocWithIdx.Idx (_, _) -> true | _ -> false)
+    in
+    if Dom.PowLocWithIdx.is_empty locs then condset
+    else
+      let v =
+        Dom.PowLocWithIdx.fold (fun l v -> Dom.Mem.find l mem |> Dom.Val.join v) locs Dom.Val.bottom
+        |> Dom.Val.get_init
+      in
+      if Dom.Init.equal v Dom.Init.Init |> not then
+        let absloc = Dom.PowLocWithIdx.choose locs in
+        Dom.CondSet.add (Dom.Cond.make_uninit absloc Dom.Init.UnInit location) condset
+      else condset
+
+
+  let copy_constructor _ src =
+    let check {location} mem condset = check_uninit src mem location condset in
+    {empty with check}
+
+
+  let plus_equal exp =
+    let check {location} mem condset = check_uninit exp mem location condset in
+    {empty with check}
+end
+
 let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t list -> 'a =
   let open ProcnameDispatcher.Call in
+  let char_typ = Typ.mk (Typ.Tint Typ.IChar) in
+  let char_ptr = Typ.mk (Typ.Tptr (char_typ, Pk_pointer)) in
   make_dispatcher
-    [ -"std" &:: "map" < capt_all >:: "operator[]" $ capt_arg $+ capt_arg $!--> at
-    ; -"std" &:: "map" < capt_all >:: "map" $ capt_arg $+? any_arg $+? any_arg $+? any_arg
-      $!--> constructor
+    [ -"std" &:: "map" < any_typ &+...>:: "operator[]" $ capt_exp $+ capt_exp $--> StdMap.at
+    ; -"std" &:: "map" < any_typ &+...>:: "map" $ capt_exp $+? any_arg $+? any_arg $+? any_arg
+      $--> StdMap.constructor
+    ; -"std" &:: "basic_string" < any_typ &+...>:: "basic_string" $ capt_exp
+      $+ capt_exp_of_prim_typ char_ptr $+ any_arg $--> BasicString.constructor
+    ; -"std" &:: "basic_string" < any_typ &+...>:: "basic_string" $ capt_exp
+      $+ capt_exp_of_typ (-"std" &:: "basic_string")
+      $--> BasicString.copy_constructor
+    ; -"std" &:: "basic_string" < any_typ &+...>:: "operator+=" $ capt_exp $+? any_arg $+? any_arg
+      $--> BasicString.plus_equal
+    ; -"std" &:: "basic_string" < any_typ &+ any_typ &+ any_typ >:: "basic_string" &::.*--> empty
+    ; -"std" &:: "basic_string" < any_typ &+...>:: "basic_string" &::.*--> empty
     ; -"fread" <>$ capt_exp $+...$--> fread
     ; -"malloc" <>$ capt_exp $--> malloc ]
