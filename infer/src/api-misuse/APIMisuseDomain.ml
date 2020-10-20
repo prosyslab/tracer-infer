@@ -43,10 +43,86 @@ module Init = struct
         F.fprintf fmt "Top"
 end
 
+module Str = struct
+  type t = Bot | Top | V of string [@@deriving compare]
+
+  let bottom = Bot
+
+  let is_bottom = function Bot -> true | _ -> false
+
+  let make s = V s
+
+  let leq ~lhs ~rhs =
+    match (lhs, rhs) with
+    | Bot, _ | _, Top ->
+        true
+    | V s1, V s2 ->
+        String.equal s1 s2
+    | _, _ ->
+        false
+
+
+  let join x y =
+    match (x, y) with
+    | Bot, _ ->
+        y
+    | _, Bot ->
+        x
+    | Top, _ | _, Top ->
+        Top
+    | V s1, V s2 ->
+        if String.equal s1 s2 then x else Top
+
+
+  let widen ~prev ~next ~num_iters:_ = join prev next
+
+  let pp fmt = function
+    | Bot ->
+        F.fprintf fmt "Bot"
+    | V s ->
+        F.fprintf fmt "\"%s\"" s
+    | Top ->
+        F.fprintf fmt "Top"
+end
+
+module Idx = struct
+  type t = Bot | Itv of Itv.t | Str of Str.t | Top [@@deriving compare]
+
+  let of_itv i = Itv i
+
+  let of_str s = Str s
+
+  let join x y =
+    match (x, y) with
+    | Bot, _ ->
+        y
+    | _, Bot ->
+        x
+    | Top, _ | _, Top ->
+        Top
+    | Itv i1, Itv i2 ->
+        Itv (Itv.join i1 i2)
+    | Str s1, Str s2 ->
+        Str (Str.join s1 s2)
+    | Itv i, Str s | Str s, Itv i ->
+        if Str.is_bottom s then Itv i else Str s
+
+
+  let pp fmt = function
+    | Bot ->
+        F.fprintf fmt "Bot"
+    | Top ->
+        F.fprintf fmt "Top"
+    | Itv i ->
+        Itv.pp fmt i
+    | Str s ->
+        Str.pp fmt s
+end
+
 module LocWithIdx = struct
   module Loc = AbsLoc.Loc
 
-  type t = Loc of Loc.t | Idx of Loc.t * Itv.t [@@deriving compare]
+  type t = Loc of Loc.t | Idx of Loc.t * Idx.t [@@deriving compare]
 
   let of_loc l = Loc l
 
@@ -69,7 +145,7 @@ module LocWithIdx = struct
     | Loc l ->
         AbsLoc.Loc.pp fmt l
     | Idx (l, i) ->
-        F.fprintf fmt "%a[%a]" Loc.pp l Itv.pp i
+        F.fprintf fmt "%a[%a]" Loc.pp l Idx.pp i
 end
 
 module PowLocWithIdx = struct
@@ -196,11 +272,17 @@ module UserInput = struct
 
   let make node loc = Set (Set.singleton (node, loc))
 
-  let is_taint = function | Top -> true | Set x -> not (Set.is_empty x) | Symbol _ -> false
+  let is_taint = function Top -> true | Set x -> not (Set.is_empty x) | Symbol _ -> false
 
   let make_symbol p = Symbol p
 
-  let pp fmt = function Top -> F.fprintf fmt "%s" "Top" | Set s -> Set.pp fmt s | Symbol s -> Symb.SymbolPath.pp_partial fmt s
+  let pp fmt = function
+    | Top ->
+        F.fprintf fmt "%s" "Top"
+    | Set s ->
+        Set.pp fmt s
+    | Symbol s ->
+        Symb.SymbolPath.pp_partial fmt s
 end
 
 module Subst = struct
@@ -217,14 +299,19 @@ end
 
 module Val = struct
   type t =
-    {powloc: PowLocWithIdx.t; init: Init.t; int_overflow: IntOverflow.t; user_input: UserInput.t}
+    { powloc: PowLocWithIdx.t
+    ; init: Init.t
+    ; int_overflow: IntOverflow.t
+    ; user_input: UserInput.t
+    ; str: Str.t }
   [@@deriving compare]
 
   let bottom =
     { powloc= PowLocWithIdx.bottom
     ; init= Init.bottom
     ; int_overflow= IntOverflow.bottom
-    ; user_input= UserInput.bottom }
+    ; user_input= UserInput.bottom
+    ; str= Str.bottom }
 
 
   let of_pow_loc powloc = {bottom with powloc}
@@ -234,6 +321,8 @@ module Val = struct
   let of_int_overflow int_overflow = {bottom with int_overflow}
 
   let of_user_input user_input = {bottom with user_input}
+
+  let of_str str = {bottom with str}
 
   let matcher = QualifiedCppName.Match.of_fuzzy_qual_names ["std::map"]
 
@@ -272,18 +361,22 @@ module Val = struct
 
   let get_user_input v = v.user_input
 
+  let get_str v = v.str
+
   let join lhs rhs =
     { powloc= PowLocWithIdx.join lhs.powloc rhs.powloc
     ; init= Init.join lhs.init rhs.init
     ; int_overflow= IntOverflow.join lhs.int_overflow rhs.int_overflow
-    ; user_input= UserInput.join lhs.user_input rhs.user_input }
+    ; user_input= UserInput.join lhs.user_input rhs.user_input
+    ; str= Str.join lhs.str rhs.str }
 
 
   let widen ~prev ~next ~num_iters =
     { powloc= PowLocWithIdx.widen ~prev:prev.powloc ~next:next.powloc ~num_iters
     ; init= Init.widen ~prev:prev.init ~next:next.init ~num_iters
     ; int_overflow= IntOverflow.widen ~prev:prev.int_overflow ~next:next.int_overflow ~num_iters
-    ; user_input= UserInput.widen ~prev:prev.user_input ~next:next.user_input ~num_iters }
+    ; user_input= UserInput.widen ~prev:prev.user_input ~next:next.user_input ~num_iters
+    ; str= Str.widen ~prev:prev.str ~next:next.str ~num_iters }
 
 
   let leq ~lhs ~rhs =
@@ -291,6 +384,7 @@ module Val = struct
     && Init.leq ~lhs:lhs.init ~rhs:rhs.init
     && IntOverflow.leq ~lhs:lhs.int_overflow ~rhs:rhs.int_overflow
     && UserInput.leq ~lhs:lhs.user_input ~rhs:rhs.user_input
+    && Str.leq ~lhs:lhs.str ~rhs:rhs.str
 
 
   let subst {Subst.subst_int_overflow; subst_user_input} v =
@@ -300,8 +394,9 @@ module Val = struct
 
 
   let pp fmt v =
-    F.fprintf fmt "{powloc: %a, init: %a, int_overflow: %a, user_input: %a}" PowLocWithIdx.pp
-      v.powloc Init.pp v.init IntOverflow.pp v.int_overflow UserInput.pp v.user_input
+    F.fprintf fmt "{powloc: %a, init: %a, int_overflow: %a, user_input: %a, str: %a}"
+      PowLocWithIdx.pp v.powloc Init.pp v.init IntOverflow.pp v.int_overflow UserInput.pp
+      v.user_input Str.pp v.str
 end
 
 module Mem = struct
