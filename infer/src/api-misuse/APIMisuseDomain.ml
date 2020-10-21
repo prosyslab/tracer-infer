@@ -230,13 +230,21 @@ module UserInput = struct
 
   module Set = PrettyPrintable.MakePPSet (Source)
 
-  type t = Top | Set of Set.t | Symbol of Symb.SymbolPath.partial [@@deriving compare, equal]
+  module PrettyPrintableSymbol = struct
+    type t = Symb.SymbolPath.partial [@@deriving compare]
+
+    let pp fmt s = F.fprintf fmt "%a" Symb.SymbolPath.pp_partial s
+  end
+
+  module SetSymbol = PrettyPrintable.MakePPSet (PrettyPrintableSymbol)
+
+  type t = Top | Set of Set.t | SetSymbol of SetSymbol.t [@@deriving compare, equal]
 
   let bottom = Set Set.empty
 
   let is_bot = function Set s -> Set.is_empty s | _ -> false
 
-  let is_symbol = function Symbol _ -> true | _ -> false
+  let is_symbol = function SetSymbol _ -> true | _ -> false
 
   let join x y =
     match (x, y) with
@@ -246,8 +254,8 @@ module UserInput = struct
         x
     | Set s1, Set s2 ->
         Set (Set.union s1 s2)
-    | Symbol _, Symbol _ ->
-        if equal x y then x else Top
+    | SetSymbol s1, SetSymbol s2 ->
+        SetSymbol (SetSymbol.union s1 s2)
     | _, _ ->
         Top
 
@@ -258,12 +266,8 @@ module UserInput = struct
     match (lhs, rhs) with
     | Set s1, Set s2 ->
         Set.subset s1 s2
-    | Set _, Symbol _ ->
-        false
-    | Symbol _, Set _ ->
-        false
-    | Symbol _, Symbol _ ->
-        equal lhs rhs
+    | SetSymbol s1, SetSymbol s2 ->
+        SetSymbol.subset s1 s2
     | _, Top ->
         true
     | _, _ ->
@@ -272,17 +276,17 @@ module UserInput = struct
 
   let make node loc = Set (Set.singleton (node, loc))
 
-  let is_taint = function Top -> true | Set x -> not (Set.is_empty x) | Symbol _ -> false
+  let is_taint = function Top -> true | Set x -> not (Set.is_empty x) | SetSymbol _ -> false
 
-  let make_symbol p = Symbol p
+  let make_symbol p = SetSymbol (SetSymbol.singleton p)
 
   let pp fmt = function
     | Top ->
         F.fprintf fmt "%s" "Top"
     | Set s ->
         Set.pp fmt s
-    | Symbol s ->
-        Symb.SymbolPath.pp_partial fmt s
+    | SetSymbol ss ->
+        SetSymbol.pp fmt ss
 end
 
 module Subst = struct
@@ -470,7 +474,7 @@ module Cond = struct
               (fun l lst ->
                 let absloc = LocWithIdx.of_loc l in
                 let init = Mem.find absloc mem |> Val.get_init in
-                UnInit {cond with absloc; init} :: lst )
+                UnInit {cond with absloc; init} :: lst)
               evals []
       | Idx (l, i) ->
           let evals = subst_powloc l in
@@ -480,7 +484,7 @@ module Cond = struct
               (fun l lst ->
                 let absloc = LocWithIdx.of_idx l i in
                 let init = Mem.find absloc mem |> Val.get_init in
-                UnInit {cond with absloc; init} :: lst )
+                UnInit {cond with absloc; init} :: lst)
               evals [] )
     | Overflow cond ->
         [ Overflow
