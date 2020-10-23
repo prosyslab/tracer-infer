@@ -12,7 +12,6 @@ type model_env =
   ; bo_mem_opt: BoDomain.Mem.t AbstractInterpreter.State.t option
   ; location: Location.t }
 
-open ProcnameDispatcher.Call.FuncArg
 open AbsLoc
 
 type exec_fun = model_env -> ret:Ident.t * Typ.t -> APIMisuseDomain.Mem.t -> APIMisuseDomain.Mem.t
