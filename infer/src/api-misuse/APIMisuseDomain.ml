@@ -343,6 +343,14 @@ module Val = struct
           let int_overflow = IntOverflow.make_symbol p in
           let user_input = UserInput.make_symbol p in
           {bottom with powloc; int_overflow; user_input}
+      | Some ({Typ.desc= Tptr _} as typ) ->
+          L.d_printfln_escaped "Val.on_demand for %a (%s)" LocWithIdx.pp loc (Typ.to_string typ) ;
+          L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
+          let powloc =
+            Allocsite.make_symbol p |> Loc.of_allocsite |> LocWithIdx.of_loc
+            |> PowLocWithIdx.singleton
+          in
+          {bottom with powloc}
       | _ ->
           L.d_printfln_escaped "Val.on_demand for %a (Others)" LocWithIdx.pp loc ;
           let int_overflow = IntOverflow.make_symbol p in
