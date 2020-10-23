@@ -17,6 +17,7 @@ module Models = APIMisuseModel
 module CFG = ProcCfg.NormalOneInstrPerNode
 module LocationSet = AbstractDomain.FiniteSet (Location)
 module Summary = Dom.Summary
+module SPath = Symb.SymbolPath
 open AbsLoc
 
 type analysis_data =
@@ -37,7 +38,7 @@ let rec make_subst formals actuals bo_mem mem
         let sym_absloc = Allocsite.make_symbol p |> Loc.of_allocsite in
         let sym_int_overflow = Dom.IntOverflow.make_symbol p in
         let sym_user_input = Dom.UserInput.make_symbol p in
-        L.(debug Analysis Quiet) "make subst sym: %a" AbsLoc.Loc.pp sym_absloc ;
+        L.(debug Analysis Quiet) "make subst sym: %a\n" AbsLoc.Loc.pp sym_absloc ;
         let v = Sem.eval exp mem in
         let locs = Dom.Val.get_powloc v in
         let locs =
@@ -74,7 +75,33 @@ module TransferFunctions = struct
 
   open AbsLoc
 
-  let instantiate_mem (ret_id, _) callee_formals callee_pname params bo_mem mem callee_exit_mem =
+  let instantiate_param callee_formals params callee_exit_mem mem =
+    let m =
+      List.fold2 callee_formals params ~init:mem ~f:(fun m (p, _) (e, _) ->
+          match (p |> Loc.of_pvar |> Loc.get_path, e) with
+          | Some formal, Exp.Lvar pvar ->
+              let formal_loc =
+                formal
+                |> SPath.deref ~deref_kind:SPath.Deref_CPointer
+                |> Allocsite.make_symbol |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc
+              in
+              let v = Domain.find formal_loc callee_exit_mem in
+              let param_var =
+                let l = pvar |> Loc.of_pvar |> Dom.LocWithIdx.of_loc in
+                Dom.Mem.find l mem |> Dom.Val.get_powloc
+              in
+              Dom.PowLocWithIdx.fold (fun l mem -> Domain.add l v mem) param_var m
+          | _, _ ->
+              m )
+    in
+    match m with
+    | IStd.List.Or_unequal_lengths.Ok result_mem ->
+        result_mem
+    | IStd.List.Or_unequal_lengths.Unequal_lengths ->
+        mem
+
+
+  let instantiate_ret ret_id callee_formals callee_pname params bo_mem callee_exit_mem mem =
     let ret_var = ret_id |> Var.of_id |> Loc.of_var |> APIMisuseDomain.LocWithIdx.of_loc in
     let subst = make_subst callee_formals params bo_mem mem Dom.Subst.empty in
     let ret_val =
@@ -84,6 +111,11 @@ module TransferFunctions = struct
       |> Dom.Val.subst subst
     in
     Domain.add ret_var ret_val mem
+
+
+  let instantiate_mem (ret_id, _) callee_formals callee_pname params bo_mem mem callee_exit_mem =
+    instantiate_ret ret_id callee_formals callee_pname params bo_mem callee_exit_mem mem
+    |> instantiate_param callee_formals params callee_exit_mem
 
 
   let exec_instr : Domain.t -> analysis_data -> CFG.Node.t -> Sil.instr -> Domain.t =
@@ -238,6 +270,23 @@ let compute_summary analysis_data cfg inv_map =
       None
 
 
+let initial_state {interproc} start_node =
+  let bo_inv_map =
+    BufferOverrunAnalysis.cached_compute_invariant_map
+      (InterproceduralAnalysis.bind_payload interproc ~f:snd)
+  in
+  match BufferOverrunAnalysis.extract_state (CFG.Node.id start_node) bo_inv_map with
+  | Some bomem ->
+      BoDomain.Mem.fold
+        ~f:(fun l v mem ->
+          let loc = Dom.LocWithIdx.of_loc l in
+          BoDomain.Val.get_all_locs v |> Dom.PowLocWithIdx.of_pow_loc |> Dom.Val.of_pow_loc
+          |> Fun.flip (Dom.Mem.add loc) mem )
+        bomem.post APIMisuseDomain.Mem.initial
+  | None ->
+      APIMisuseDomain.Mem.initial
+
+
 let checker ({InterproceduralAnalysis.proc_desc; analyze_dependency} as analysis_data) =
   BufferOverrunAnalysis.cached_compute_invariant_map
     (InterproceduralAnalysis.bind_payload analysis_data ~f:snd)
@@ -249,5 +298,6 @@ let checker ({InterproceduralAnalysis.proc_desc; analyze_dependency} as analysis
     AnalysisCallbacks.get_proc_desc callee_pname >>| Procdesc.get_pvar_formals
   in
   let analysis_data = {interproc= analysis_data; get_summary; get_formals} in
-  let inv_map = Analyzer.exec_pdesc analysis_data ~initial:APIMisuseDomain.Mem.initial proc_desc in
+  let initial = initial_state analysis_data (CFG.start_node cfg) in
+  let inv_map = Analyzer.exec_pdesc analysis_data ~initial proc_desc in
   compute_summary analysis_data cfg inv_map
