@@ -169,6 +169,16 @@ module BasicString = struct
       else condset
 
 
+  let assign lv rv =
+    let exec {bo_mem_opt} ~ret:_ mem =
+      let locs = Sem.eval_locs lv bo_mem_opt mem in
+      let v = Sem.eval rv mem in
+      Dom.PowLocWithIdx.fold (fun l mem -> Dom.Mem.add l v mem) locs mem
+    in
+    let check {location} mem condset = check_uninit rv mem location condset in
+    {exec; check}
+
+
   let copy_constructor _ src =
     let check {location} mem condset = check_uninit src mem location condset in
     {empty with check}
@@ -192,6 +202,8 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"std" &:: "basic_string" < any_typ &+...>:: "basic_string" $ capt_exp
       $+ capt_exp_of_typ (-"std" &:: "basic_string")
       $--> BasicString.copy_constructor
+    ; -"std" &:: "basic_string" < any_typ &+...>:: "operator=" $ capt_exp $+ capt_exp
+      $--> BasicString.assign
     ; -"std" &:: "basic_string" < any_typ &+...>:: "operator+=" $ capt_exp $+? any_arg $+? any_arg
       $--> BasicString.plus_equal
     ; -"std" &:: "basic_string" < any_typ &+ any_typ &+ any_typ >:: "basic_string" &::.*--> empty
