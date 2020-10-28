@@ -82,25 +82,56 @@ let malloc size =
 
 
 module StdMap = struct
+  let allocate_map pname node_hash pvar mem =
+    let allocsite =
+      Allocsite.make pname ~node_hash ~inst_num:0 ~dimension:1 ~path:None
+        ~represents_multiple_values:false
+    in
+    let loc = Loc.of_pvar pvar |> Dom.LocWithIdx.of_loc in
+    let v =
+      Loc.of_allocsite allocsite |> Dom.LocWithIdx.of_loc |> Dom.PowLocWithIdx.singleton
+      |> Dom.Val.of_pow_loc
+    in
+    Dom.Mem.add loc v mem
+
+
   let constructor exp =
     let exec {pname; node_hash} ~ret:_ mem =
       match exp with
       | Exp.Lvar v ->
-          let allocsite =
-            Allocsite.make pname ~node_hash ~inst_num:0 ~dimension:1 ~path:None
-              ~represents_multiple_values:false
-          in
-          let loc = Loc.of_pvar v |> Dom.LocWithIdx.of_loc in
-          let v =
-            Loc.of_allocsite allocsite |> Dom.LocWithIdx.of_loc |> Dom.PowLocWithIdx.singleton
-            |> Dom.Val.of_pow_loc
-          in
-          Dom.Mem.add loc v mem
+          allocate_map pname node_hash v mem
       | _ ->
           L.user_warning "Invalid argument of std::map" ;
           mem
     in
     {exec; check= empty_check_fun}
+
+
+  let copy_constructor exp other =
+    let exec {pname; node_hash} ~ret:_ mem =
+      match exp with
+      | Exp.Lvar v ->
+          allocate_map pname node_hash v mem (* TODO: copy contents*)
+      | _ ->
+          L.user_warning "Invalid argument of std::map" ;
+          mem
+    in
+    let check {location} mem condset =
+      let locs = Sem.eval other mem |> Dom.Val.get_powloc in
+      Dom.PowLocWithIdx.fold
+        (fun l condset ->
+          match l with
+          | Dom.LocWithIdx.Idx (_, _) ->
+              let init = Dom.Mem.find l mem |> Dom.Val.get_init in
+              if Dom.Init.equal init Dom.Init.Init |> not then
+                Dom.CondSet.add (Dom.Cond.make_uninit l Dom.Init.UnInit location) condset
+              else condset
+          | _ ->
+              condset )
+        locs condset
+    in
+    L.d_printfln_escaped "Map.copy_constructor" ;
+    {exec; check}
 
 
   let at map_exp idx =
@@ -133,6 +164,7 @@ module StdMap = struct
       | _, _ ->
           mem
     in
+    L.d_printfln_escaped "Map.at" ;
     {exec; check= empty_check_fun}
 end
 
@@ -195,6 +227,9 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
   let char_ptr = Typ.mk (Typ.Tptr (char_typ, Pk_pointer)) in
   make_dispatcher
     [ -"std" &:: "map" < any_typ &+...>:: "operator[]" $ capt_exp $+ capt_exp $--> StdMap.at
+    ; -"std" &:: "map" < any_typ &+...>:: "map" $ capt_exp
+      $+ capt_exp_of_typ (-"std" &:: "map")
+      $--> StdMap.copy_constructor
     ; -"std" &:: "map" < any_typ &+...>:: "map" $ capt_exp $+? any_arg $+? any_arg $+? any_arg
       $--> StdMap.constructor
     ; -"std" &:: "basic_string" < any_typ &+...>:: "basic_string" $ capt_exp
