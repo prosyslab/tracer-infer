@@ -63,10 +63,19 @@ let rec make_subst formals actuals bo_mem mem
               | SetSymbol ss ->
                   Dom.UserInput.SetSymbol.fold
                     (fun sym s ->
+                      let setsymbol_sym = Dom.UserInput.make_symbol sym in
                       let subst_val =
-                        if Dom.UserInput.equal (Dom.UserInput.make_symbol sym) sym_user_input then
-                          user_input
-                        else subst_user_input (Dom.UserInput.make_symbol sym)
+                        match sym with
+                        | BufferOverrunField.Prim (SPath.Deref (_, p)) ->
+                            let deref_subst_val =
+                              Sem.Mem.find (Dom.PowLocWithIdx.min_elt (Dom.Val.get_powloc v)) mem
+                            in
+                            if Dom.UserInput.equal (Dom.UserInput.make_symbol p) sym_user_input then
+                              Dom.Val.get_user_input deref_subst_val
+                            else subst_user_input setsymbol_sym
+                        | _ ->
+                            if Dom.UserInput.equal setsymbol_sym sym_user_input then user_input
+                            else subst_user_input setsymbol_sym
                       in
                       Dom.UserInput.join subst_val s)
                     ss Dom.UserInput.bottom
