@@ -68,7 +68,9 @@ let rec make_subst formals actuals bo_mem mem
                         match sym with
                         | BufferOverrunField.Prim (SPath.Deref (_, p)) ->
                             let deref_subst_val =
-                              Sem.Mem.find (Dom.PowLocWithIdx.min_elt (Dom.Val.get_powloc v)) mem
+                              try
+                                Sem.Mem.find (Dom.PowLocWithIdx.min_elt (Dom.Val.get_powloc v)) mem
+                              with Not_found -> Dom.Val.bottom
                             in
                             if Dom.UserInput.equal (Dom.UserInput.make_symbol p) sym_user_input then
                               Dom.Val.get_user_input deref_subst_val
