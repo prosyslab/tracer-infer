@@ -70,7 +70,7 @@ let rec make_subst formals actuals bo_mem mem
                             let deref_subst_val =
                               try
                                 Sem.Mem.find (Dom.PowLocWithIdx.min_elt (Dom.Val.get_powloc v)) mem
-                              with Not_found -> Dom.Val.bottom
+                              with _ -> Dom.Val.bottom
                             in
                             if Dom.UserInput.equal (Dom.UserInput.make_symbol p) sym_user_input then
                               Dom.Val.get_user_input deref_subst_val
@@ -98,11 +98,21 @@ module TransferFunctions = struct
 
   open AbsLoc
 
-  let instantiate_param callee_formals params callee_exit_mem mem =
+  let instantiate_param callee_formals params
+      (bo_mem : GOption.some BoDomain.Mem.t0 AbstractInterpreter.State.t option) callee_exit_mem mem
+      =
     let m =
       List.fold2 callee_formals params ~init:mem ~f:(fun m (p, _) (e, _) ->
           match (p |> Loc.of_pvar |> Loc.get_path, e) with
           | Some formal, Exp.Lvar pvar ->
+              let param_powloc =
+                ( match bo_mem with
+                | Some bomem ->
+                    BoSemantics.eval_locs e bomem.pre
+                | _ ->
+                    PowLoc.bot )
+                |> Dom.PowLocWithIdx.of_pow_loc
+              in
               let formal_loc =
                 formal
                 |> SPath.deref ~deref_kind:SPath.Deref_CPointer
@@ -113,7 +123,10 @@ module TransferFunctions = struct
                 let l = pvar |> Loc.of_pvar |> Dom.LocWithIdx.of_loc in
                 Dom.Mem.find l mem |> Dom.Val.get_powloc
               in
-              Dom.PowLocWithIdx.fold (fun l mem -> Domain.add l v mem) param_var m
+              Dom.PowLocWithIdx.fold
+                (fun l mem -> Domain.add l v mem)
+                (Dom.PowLocWithIdx.join param_var param_powloc)
+                m
           | _, _ ->
               m)
     in
@@ -138,7 +151,7 @@ module TransferFunctions = struct
 
   let instantiate_mem (ret_id, _) callee_formals callee_pname params bo_mem mem callee_exit_mem =
     instantiate_ret ret_id callee_formals callee_pname params bo_mem callee_exit_mem mem
-    |> instantiate_param callee_formals params callee_exit_mem
+    |> instantiate_param callee_formals params bo_mem callee_exit_mem
 
 
   let exec_instr : Domain.t -> analysis_data -> CFG.Node.t -> Sil.instr -> Domain.t =
