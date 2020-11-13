@@ -43,6 +43,8 @@ and eval exp mem =
       eval_unop uop e mem
   | Exp.Cast (_, e1) ->
       eval e1 mem
+  | Exp.Lindex (e1, _) ->
+      eval e1 mem
   | _ ->
       (* TODO *)
       Val.bottom
