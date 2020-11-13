@@ -42,8 +42,8 @@ let fread buffer =
                 | Loc field when Loc.is_field_of ~loc:l ~field_loc:field ->
                     Dom.Mem.add l' v mem
                 | _ ->
-                    mem )
-              mem mem )
+                    mem)
+              mem mem)
           locs mem
     | _ ->
         mem
@@ -69,7 +69,7 @@ let malloc size =
                 in
                 Dom.Mem.add loc v mem
             | Some _ ->
-                mem )
+                mem)
           bomem.post mem
     | _ ->
         mem
@@ -127,7 +127,7 @@ module StdMap = struct
                 Dom.CondSet.add (Dom.Cond.make_uninit l Dom.Init.UnInit location) condset
               else condset
           | _ ->
-              condset )
+              condset)
         locs condset
     in
     L.d_printfln_escaped "Map.copy_constructor" ;
@@ -244,4 +244,6 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"std" &:: "basic_string" < any_typ &+ any_typ &+ any_typ >:: "basic_string" &::.*--> empty
     ; -"std" &:: "basic_string" < any_typ &+...>:: "basic_string" &::.*--> empty
     ; -"fread" <>$ capt_exp $+...$--> fread
-    ; -"malloc" <>$ capt_exp $--> malloc ]
+    ; -"malloc" <>$ capt_exp $--> malloc
+    ; -"g_malloc" <>$ capt_exp $--> malloc
+    ; -"__new_array" <>$ capt_exp $--> malloc ]
