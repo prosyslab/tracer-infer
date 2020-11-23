@@ -19,8 +19,9 @@ let rec eval_locs exp bo_mem mem =
   | Exp.Var id ->
       Var.of_id id |> AbsLoc.Loc.of_var |> Dom.LocWithIdx.of_loc |> Fun.flip Mem.find mem
       |> Val.get_powloc
-  | Exp.Lvar pvar ->
-      pvar |> AbsLoc.Loc.of_pvar |> Dom.LocWithIdx.of_loc |> Dom.PowLocWithIdx.singleton
+  | Exp.Lvar _ ->
+      (* In Inferbo, there are two kinds of Lvar, stack variable and heap variable. We follow the concept *)
+      bo_eval_locs exp bo_mem
   | Exp.Lindex (e1, _) ->
       bo_eval_locs e1 bo_mem
   | Exp.Lfield _ ->

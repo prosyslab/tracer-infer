@@ -56,7 +56,7 @@ let rec make_subst formals actuals bo_mem mem
         ; subst_int_overflow=
             (fun s ->
               if Dom.IntOverflow.equal s sym_int_overflow then int_overflow
-              else subst_int_overflow s)
+              else subst_int_overflow s )
         ; subst_user_input=
             (fun s ->
               match s with
@@ -79,10 +79,10 @@ let rec make_subst formals actuals bo_mem mem
                             if Dom.UserInput.equal setsymbol_sym sym_user_input then user_input
                             else subst_user_input setsymbol_sym
                       in
-                      Dom.UserInput.join subst_val s)
+                      Dom.UserInput.join subst_val s )
                     ss Dom.UserInput.bottom
               | _ ->
-                  subst_user_input s) }
+                  subst_user_input s ) }
         |> make_subst t1 t2 bo_mem mem
     | _ ->
         subst )
@@ -128,7 +128,7 @@ module TransferFunctions = struct
                 (Dom.PowLocWithIdx.join param_var param_powloc)
                 m
           | _, _ ->
-              m)
+              m )
     in
     match m with
     | IStd.List.Or_unequal_lengths.Ok result_mem ->
@@ -181,7 +181,7 @@ module TransferFunctions = struct
     | Call (((_, _) as ret), Const (Cfun callee_pname), params, location, _) -> (
         let fun_arg_list =
           List.map params ~f:(fun (exp, typ) ->
-              ProcnameDispatcher.Call.FuncArg.{exp; typ; arg_payload= ()})
+              ProcnameDispatcher.Call.FuncArg.{exp; typ; arg_payload= ()} )
         in
         match Models.dispatch tenv callee_pname fun_arg_list with
         | Some {Models.exec} ->
@@ -230,7 +230,7 @@ let check_instr {interproc= {InterproceduralAnalysis.tenv; proc_desc}; get_summa
   | Sil.Call (_, Const (Cfun callee_pname), args, location, _) -> (
       let fun_arg_list =
         List.map args ~f:(fun (exp, typ) ->
-            ProcnameDispatcher.Call.FuncArg.{exp; typ; arg_payload= ()})
+            ProcnameDispatcher.Call.FuncArg.{exp; typ; arg_payload= ()} )
       in
       match Models.dispatch tenv callee_pname fun_arg_list with
       | Some {Models.check} ->
@@ -292,7 +292,7 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
             Reporting.log_issue proc_desc err_log ~loc APIMisuse IssueType.api_misuse "Overflow" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
         | _ ->
-            Dom.CondSet.add cond condset)
+            Dom.CondSet.add cond condset )
     condset Dom.CondSet.empty
 
 
@@ -317,7 +317,7 @@ let initial_state {interproc} start_node =
         ~f:(fun l v mem ->
           let loc = Dom.LocWithIdx.of_loc l in
           BoDomain.Val.get_all_locs v |> Dom.PowLocWithIdx.of_pow_loc |> Dom.Val.of_pow_loc
-          |> Fun.flip (Dom.Mem.add loc) mem)
+          |> Fun.flip (Dom.Mem.add loc) mem )
         bomem.post APIMisuseDomain.Mem.initial
   | None ->
       APIMisuseDomain.Mem.initial
