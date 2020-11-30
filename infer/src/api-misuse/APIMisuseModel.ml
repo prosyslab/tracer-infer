@@ -4,6 +4,7 @@ module BoDomain = BufferOverrunDomain
 module BoSemantics = BufferOverrunSemantics
 module Dom = APIMisuseDomain
 module Sem = APIMisuseSemantics
+module Trace = APIMisuseTrace
 
 type model_env =
   { pname: Procname.t
@@ -33,7 +34,8 @@ let fread buffer =
         let locs = BoSemantics.eval_locs buffer bomem.pre in
         PowLoc.fold
           (fun l mem ->
-            let v = Dom.UserInput.make node location |> Dom.Val.of_user_input in
+            let traces = [Trace.make_input location] |> Trace.Set.singleton in
+            let v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
             let loc = Dom.LocWithIdx.of_loc l in
             let mem = Dom.Mem.add loc v mem in
             Dom.Mem.fold
@@ -42,8 +44,8 @@ let fread buffer =
                 | Loc field when Loc.is_field_of ~loc:l ~field_loc:field ->
                     Dom.Mem.add l' v mem
                 | _ ->
-                    mem)
-              mem mem)
+                    mem )
+              mem mem )
           locs mem
     | _ ->
         mem
@@ -69,14 +71,15 @@ let malloc size =
                 in
                 Dom.Mem.add loc v mem
             | Some _ ->
-                mem)
+                mem )
           bomem.post mem
     | _ ->
         mem
   in
   let check {location} mem condset =
-    let v = Sem.eval size mem in
-    Dom.CondSet.add (Dom.Cond.make_overflow v location) condset
+    let v = Sem.eval size location mem in
+    let traces = Trace.Set.append (Trace.make_malloc location) v.Dom.Val.traces in
+    Dom.CondSet.add (Dom.Cond.make_overflow {v with traces} location) condset
   in
   {exec; check}
 
@@ -117,7 +120,7 @@ module StdMap = struct
           mem
     in
     let check {location} mem condset =
-      let locs = Sem.eval other mem |> Dom.Val.get_powloc in
+      let locs = Sem.eval other location mem |> Dom.Val.get_powloc in
       Dom.PowLocWithIdx.fold
         (fun l condset ->
           match l with
@@ -127,7 +130,7 @@ module StdMap = struct
                 Dom.CondSet.add (Dom.Cond.make_uninit l Dom.Init.UnInit location) condset
               else condset
           | _ ->
-              condset)
+              condset )
         locs condset
     in
     L.d_printfln_escaped "Map.copy_constructor" ;
@@ -144,7 +147,7 @@ module StdMap = struct
       | _ ->
           L.die Die.InternalError "Unreachable"
     in
-    let exec {bo_mem_opt} ~ret mem =
+    let exec {bo_mem_opt; location} ~ret mem =
       match (map_exp, bo_mem_opt) with
       | Exp.Lvar _, Some bomem | Exp.Var _, Some bomem ->
           let idx_itv_val =
@@ -152,7 +155,7 @@ module StdMap = struct
             |> Fun.flip BoDomain.Mem.find_set bomem.pre
             |> BoDomain.Val.get_itv |> Dom.Idx.of_itv
           in
-          let idx_str_val = Sem.eval idx mem |> Dom.Val.get_str |> Dom.Idx.of_str in
+          let idx_str_val = Sem.eval idx location mem |> Dom.Val.get_str |> Dom.Idx.of_str in
           let idx_val = Dom.Idx.join idx_itv_val idx_str_val in
           let retloc = fst ret |> Loc.of_id |> Dom.LocWithIdx.of_loc in
           let maploc = eval_maploc map_exp mem in
@@ -186,7 +189,7 @@ module BasicString = struct
 
   let check_uninit exp mem location condset =
     let locs =
-      Sem.eval exp mem |> Dom.Val.get_powloc
+      Sem.eval exp location mem |> Dom.Val.get_powloc
       |> Dom.PowLocWithIdx.filter (function Dom.LocWithIdx.Idx (_, _) -> true | _ -> false)
     in
     if Dom.PowLocWithIdx.is_empty locs then condset
@@ -202,9 +205,9 @@ module BasicString = struct
 
 
   let assign lv rv =
-    let exec {bo_mem_opt} ~ret:_ mem =
+    let exec {bo_mem_opt; location} ~ret:_ mem =
       let locs = Sem.eval_locs lv bo_mem_opt mem in
-      let v = Sem.eval rv mem in
+      let v = Sem.eval rv location mem in
       Dom.PowLocWithIdx.fold (fun l mem -> Dom.Mem.add l v mem) locs mem
     in
     let check {location} mem condset = check_uninit rv mem location condset in

@@ -2,6 +2,8 @@ module F = Format
 module L = Logging
 open AbsLoc
 module CFG = ProcCfg.NormalOneInstrPerNode
+module Trace = APIMisuseTrace
+module TraceSet = APIMisuseTrace.Set
 
 module Init = struct
   type t = Bot | Init | UnInit | Top [@@deriving compare, equal]
@@ -293,12 +295,14 @@ module Subst = struct
   type subst =
     { subst_powloc: Loc.t -> PowLoc.t
     ; subst_int_overflow: IntOverflow.t -> IntOverflow.t
-    ; subst_user_input: UserInput.t -> UserInput.t }
+    ; subst_user_input: UserInput.t -> UserInput.t
+    ; subst_traces: TraceSet.t -> TraceSet.t }
 
   let empty =
     { subst_powloc= (fun _ -> AbsLoc.PowLoc.bot)
     ; subst_int_overflow= Fun.id
-    ; subst_user_input= Fun.id }
+    ; subst_user_input= Fun.id
+    ; subst_traces= Fun.id }
 end
 
 module Val = struct
@@ -307,7 +311,8 @@ module Val = struct
     ; init: Init.t
     ; int_overflow: IntOverflow.t
     ; user_input: UserInput.t
-    ; str: Str.t }
+    ; str: Str.t
+    ; traces: TraceSet.t }
   [@@deriving compare]
 
   let bottom =
@@ -315,7 +320,8 @@ module Val = struct
     ; init= Init.bottom
     ; int_overflow= IntOverflow.bottom
     ; user_input= UserInput.bottom
-    ; str= Str.bottom }
+    ; str= Str.bottom
+    ; traces= TraceSet.bottom }
 
 
   let of_pow_loc powloc = {bottom with powloc}
@@ -324,7 +330,7 @@ module Val = struct
 
   let of_int_overflow int_overflow = {bottom with int_overflow}
 
-  let of_user_input user_input = {bottom with user_input}
+  let of_user_input ?(traces = TraceSet.bottom) user_input = {bottom with user_input; traces}
 
   let of_str str = {bottom with str}
 
@@ -340,26 +346,26 @@ module Val = struct
           L.d_printfln_escaped "Val.on_demand for %a (%a)" LocWithIdx.pp loc QualifiedCppName.pp
             name ;
           L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
-          let powloc =
-            Allocsite.make_symbol p |> Loc.of_allocsite |> LocWithIdx.of_loc
-            |> PowLocWithIdx.singleton
-          in
+          let loc = Allocsite.make_symbol p |> Loc.of_allocsite in
+          let powloc = loc |> LocWithIdx.of_loc |> PowLocWithIdx.singleton in
           let int_overflow = IntOverflow.make_symbol p in
           let user_input = UserInput.make_symbol p in
-          {bottom with powloc; int_overflow; user_input}
+          let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
+          {bottom with powloc; int_overflow; user_input; traces}
       | Some ({Typ.desc= Tptr _} as typ) ->
           L.d_printfln_escaped "Val.on_demand for %a (%s)" LocWithIdx.pp loc (Typ.to_string typ) ;
           L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
-          let powloc =
-            Allocsite.make_symbol p |> Loc.of_allocsite |> LocWithIdx.of_loc
-            |> PowLocWithIdx.singleton
-          in
-          {bottom with powloc}
+          let loc = Allocsite.make_symbol p |> Loc.of_allocsite in
+          let powloc = loc |> LocWithIdx.of_loc |> PowLocWithIdx.singleton in
+          let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
+          {bottom with powloc; traces}
       | _ ->
           L.d_printfln_escaped "Val.on_demand for %a (Others)" LocWithIdx.pp loc ;
           let int_overflow = IntOverflow.make_symbol p in
           let user_input = UserInput.make_symbol p in
-          {bottom with int_overflow; user_input} )
+          let loc = Allocsite.make_symbol p |> Loc.of_allocsite in
+          let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
+          {bottom with int_overflow; user_input; traces} )
     | None ->
         L.d_printfln_escaped "Path none" ;
         bottom
@@ -373,6 +379,8 @@ module Val = struct
 
   let get_user_input v = v.user_input
 
+  let get_traces v = v.traces
+
   let get_str v = v.str
 
   let join lhs rhs =
@@ -380,7 +388,8 @@ module Val = struct
     ; init= Init.join lhs.init rhs.init
     ; int_overflow= IntOverflow.join lhs.int_overflow rhs.int_overflow
     ; user_input= UserInput.join lhs.user_input rhs.user_input
-    ; str= Str.join lhs.str rhs.str }
+    ; str= Str.join lhs.str rhs.str
+    ; traces= TraceSet.join lhs.traces rhs.traces }
 
 
   let widen ~prev ~next ~num_iters =
@@ -388,7 +397,8 @@ module Val = struct
     ; init= Init.widen ~prev:prev.init ~next:next.init ~num_iters
     ; int_overflow= IntOverflow.widen ~prev:prev.int_overflow ~next:next.int_overflow ~num_iters
     ; user_input= UserInput.widen ~prev:prev.user_input ~next:next.user_input ~num_iters
-    ; str= Str.widen ~prev:prev.str ~next:next.str ~num_iters }
+    ; str= Str.widen ~prev:prev.str ~next:next.str ~num_iters
+    ; traces= TraceSet.join prev.traces next.traces }
 
 
   let leq ~lhs ~rhs =
@@ -399,16 +409,17 @@ module Val = struct
     && Str.leq ~lhs:lhs.str ~rhs:rhs.str
 
 
-  let subst {Subst.subst_int_overflow; subst_user_input} v =
+  let subst {Subst.subst_int_overflow; subst_user_input; subst_traces} v =
     { v with
       int_overflow= subst_int_overflow v.int_overflow
-    ; user_input= subst_user_input v.user_input }
+    ; user_input= subst_user_input v.user_input
+    ; traces= subst_traces v.traces }
 
 
   let pp fmt v =
-    F.fprintf fmt "{powloc: %a, init: %a, int_overflow: %a, user_input: %a, str: %a}"
+    F.fprintf fmt "{powloc: %a, init: %a, int_overflow: %a, user_input: %a, str: %a, traces: %a}"
       PowLocWithIdx.pp v.powloc Init.pp v.init IntOverflow.pp v.int_overflow UserInput.pp
-      v.user_input Str.pp v.str
+      v.user_input Str.pp v.str TraceSet.pp v.traces
 end
 
 module Mem = struct
@@ -425,14 +436,22 @@ end
 
 module Cond = struct
   type t =
-    | UnInit of {absloc: LocWithIdx.t; init: Init.t; loc: Location.t; reported: bool}
-    | Overflow of {size: IntOverflow.t; user_input: UserInput.t; loc: Location.t; reported: bool}
+    | UnInit of
+        {absloc: LocWithIdx.t; init: Init.t; loc: Location.t; traces: TraceSet.t; reported: bool}
+    | Overflow of
+        { size: IntOverflow.t
+        ; user_input: UserInput.t
+        ; loc: Location.t
+        ; traces: TraceSet.t
+        ; reported: bool }
   [@@deriving compare]
 
-  let make_uninit absloc init loc = UnInit {absloc; init; loc; reported= false}
+  let make_uninit absloc init loc =
+    UnInit {absloc; init; loc; traces= TraceSet.empty; reported= false}
 
-  let make_overflow {Val.int_overflow; user_input} loc =
-    Overflow {size= int_overflow; user_input; loc; reported= false}
+
+  let make_overflow {Val.int_overflow; user_input; traces} loc =
+    Overflow {size= int_overflow; user_input; loc; traces; reported= false}
 
 
   let reported = function
@@ -463,34 +482,37 @@ module Cond = struct
         false
 
 
-  let subst {Subst.subst_powloc; subst_int_overflow; subst_user_input} mem = function
+  let subst {Subst.subst_powloc; subst_int_overflow; subst_user_input; subst_traces} mem = function
     | UnInit cond -> (
       match cond.absloc with
-      | Loc l ->
+      | Loc l -> (
           let evals = subst_powloc l in
-          if AbsLoc.PowLoc.is_bot evals then [UnInit cond]
+          if AbsLoc.PowLoc.is_bot evals then UnInit cond
           else
-            AbsLoc.PowLoc.fold
-              (fun l lst ->
+            match AbsLoc.PowLoc.min_elt_opt evals with
+            | Some l ->
                 let absloc = LocWithIdx.of_loc l in
                 let init = Mem.find absloc mem |> Val.get_init in
-                UnInit {cond with absloc; init} :: lst)
-              evals []
-      | Idx (l, i) ->
+                UnInit {cond with absloc; init}
+            | None ->
+                UnInit cond )
+      | Idx (l, i) -> (
           let evals = subst_powloc l in
-          if AbsLoc.PowLoc.is_bot evals then [UnInit cond]
+          if AbsLoc.PowLoc.is_bot evals then UnInit cond
           else
-            AbsLoc.PowLoc.fold
-              (fun l lst ->
+            match AbsLoc.PowLoc.min_elt_opt evals with
+            | Some l ->
                 let absloc = LocWithIdx.of_idx l i in
                 let init = Mem.find absloc mem |> Val.get_init in
-                UnInit {cond with absloc; init} :: lst)
-              evals [] )
+                UnInit {cond with absloc; init}
+            | None ->
+                UnInit cond ) )
     | Overflow cond ->
-        [ Overflow
-            { cond with
-              size= subst_int_overflow cond.size
-            ; user_input= subst_user_input cond.user_input } ]
+        Overflow
+          { cond with
+            size= subst_int_overflow cond.size
+          ; user_input= subst_user_input cond.user_input
+          ; traces= subst_traces cond.traces }
 
 
   let pp fmt = function
@@ -505,7 +527,11 @@ module CondSet = struct
   include AbstractDomain.FiniteSet (Cond)
 
   let subst eval_sym mem condset =
-    fold (fun cond condset -> Cond.subst eval_sym mem cond |> of_list |> join condset) condset empty
+    fold
+      (fun cond condset ->
+        let cond = Cond.subst eval_sym mem cond in
+        add cond condset )
+      condset empty
 end
 
 module Summary = struct

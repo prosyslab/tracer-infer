@@ -5,6 +5,8 @@ module BoDomain = BufferOverrunDomain
 module Dom = APIMisuseDomain
 module Mem = APIMisuseDomain.Mem
 module Val = Dom.Val
+module Trace = APIMisuseTrace
+module TraceSet = APIMisuseTrace.Set
 
 let bo_eval_locs e bo_mem_opt =
   match (bo_mem_opt : BoDomain.Mem.t AbstractInterpreter.State.t option) with
@@ -30,7 +32,7 @@ let rec eval_locs exp bo_mem mem =
       Dom.PowLocWithIdx.empty
 
 
-and eval exp mem =
+and eval exp loc mem =
   match exp with
   | Exp.Var id ->
       Var.of_id id |> AbsLoc.Loc.of_var |> Dom.LocWithIdx.of_loc |> Fun.flip Mem.find mem
@@ -39,21 +41,28 @@ and eval exp mem =
   | Exp.Const _ ->
       Dom.Init.Init |> Val.of_init
   | Exp.BinOp (bop, e1, e2) ->
-      eval_binop bop e1 e2 mem
+      eval_binop bop e1 e2 loc mem
   | Exp.UnOp (uop, e, _) ->
-      eval_unop uop e mem
+      eval_unop uop e loc mem
   | Exp.Cast (_, e1) ->
-      eval e1 mem
+      eval e1 loc mem
   | Exp.Lindex (e1, _) ->
-      eval e1 mem
+      eval e1 loc mem
   | _ ->
       (* TODO *)
       Val.bottom
 
 
-and eval_binop bop e1 e2 mem =
-  let v1 = eval e1 mem in
-  let v2 = eval e2 mem in
+and eval_binop bop e1 e2 loc mem =
+  let v1 = eval e1 loc mem in
+  let v2 = eval e2 loc mem in
+  let traces =
+    if TraceSet.is_empty v1.Val.traces |> not then
+      TraceSet.append (Trace.make_binop loc) v1.Val.traces
+    else if TraceSet.is_empty v2.Val.traces |> not then
+      TraceSet.append (Trace.make_binop loc) v2.Val.traces
+    else TraceSet.empty
+  in
   match bop with
   | Binop.Shiftlt | Binop.PlusA _ | Binop.Mult _ ->
       let overflow v =
@@ -65,13 +74,15 @@ and eval_binop bop e1 e2 mem =
         powloc= Dom.PowLocWithIdx.join v1.Val.powloc v2.Val.powloc
       ; Val.init= Dom.Init.join v1.Val.init v2.Val.init
       ; user_input= Dom.UserInput.join v1.Val.user_input v2.Val.user_input
-      ; int_overflow= Dom.IntOverflow.join (overflow v1) (overflow v2) }
+      ; int_overflow= Dom.IntOverflow.join (overflow v1) (overflow v2)
+      ; traces }
   | _ ->
       { Val.bottom with
         powloc= Dom.PowLocWithIdx.join v1.Val.powloc v2.Val.powloc
       ; Val.init= Dom.Init.join v1.Val.init v2.Val.init
       ; user_input= Dom.UserInput.join v1.Val.user_input v2.Val.user_input
-      ; int_overflow= Dom.IntOverflow.join v1.Val.int_overflow v2.Val.int_overflow }
+      ; int_overflow= Dom.IntOverflow.join v1.Val.int_overflow v2.Val.int_overflow
+      ; traces }
 
 
-and eval_unop _ e mem = eval e mem
+and eval_unop _ e loc mem = eval e loc mem

@@ -18,6 +18,8 @@ module CFG = ProcCfg.NormalOneInstrPerNode
 module LocationSet = AbstractDomain.FiniteSet (Location)
 module Summary = Dom.Summary
 module SPath = Symb.SymbolPath
+module Trace = APIMisuseTrace
+module TraceSet = APIMisuseTrace.Set
 open AbsLoc
 
 type analysis_data =
@@ -29,7 +31,40 @@ type analysis_data =
       -> (APIMisuseDomain.Summary.t option * BufferOverrunAnalysisSummary.t option) option
   ; get_formals: Procname.t -> (Pvar.t * Typ.t) list option }
 
-let rec make_subst formals actuals bo_mem mem
+let make_subst_traces p v location mem s =
+  let sym_absloc = Allocsite.make_symbol p |> Loc.of_allocsite in
+  let sym_absloc_deref =
+    SPath.deref ~deref_kind:SPath.Deref_CPointer p |> Allocsite.make_symbol |> Loc.of_allocsite
+  in
+  let traces = Dom.Val.get_traces v in
+  TraceSet.fold
+    (fun trace set ->
+      match List.last trace with
+      | Some (Trace.SymbolDecl l) when Loc.equal l sym_absloc ->
+          TraceSet.fold
+            (fun t set ->
+              let t = Trace.concat [Trace.make_call location] t in
+              let t = Trace.concat trace t in
+              TraceSet.add t set )
+            traces set
+      | Some (Trace.SymbolDecl l) when Loc.equal l sym_absloc_deref ->
+          let deref_subst_val =
+            try Sem.Mem.find (Dom.PowLocWithIdx.min_elt (Dom.Val.get_powloc v)) mem
+            with _ -> Dom.Val.bottom
+          in
+          let traces = Dom.Val.get_traces deref_subst_val in
+          TraceSet.fold
+            (fun t set ->
+              let t = Trace.concat [Trace.make_call location] t in
+              let t = Trace.concat trace t in
+              TraceSet.add t set )
+            traces set
+      | _ ->
+          TraceSet.add trace set )
+    s TraceSet.empty
+
+
+let rec make_subst formals actuals location bo_mem mem
     ({Dom.Subst.subst_powloc; subst_int_overflow; subst_user_input} as subst) =
   match (formals, actuals) with
   | (pvar, _) :: t1, (exp, _) :: t2 -> (
@@ -39,7 +74,7 @@ let rec make_subst formals actuals bo_mem mem
         let sym_int_overflow = Dom.IntOverflow.make_symbol p in
         let sym_user_input = Dom.UserInput.make_symbol p in
         L.(debug Analysis Quiet) "make subst sym: %a\n" AbsLoc.Loc.pp sym_absloc ;
-        let v = Sem.eval exp mem in
+        let v = Sem.eval exp location mem in
         let locs = Dom.Val.get_powloc v in
         let locs =
           Dom.PowLocWithIdx.fold
@@ -82,8 +117,9 @@ let rec make_subst formals actuals bo_mem mem
                       Dom.UserInput.join subst_val s )
                     ss Dom.UserInput.bottom
               | _ ->
-                  subst_user_input s ) }
-        |> make_subst t1 t2 bo_mem mem
+                  subst_user_input s )
+        ; subst_traces= make_subst_traces p v location mem }
+        |> make_subst t1 t2 location bo_mem mem
     | _ ->
         subst )
   | _, _ ->
@@ -118,11 +154,13 @@ module TransferFunctions = struct
                 |> SPath.deref ~deref_kind:SPath.Deref_CPointer
                 |> Allocsite.make_symbol |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc
               in
-              let v = Domain.find formal_loc callee_exit_mem in
-              let param_var =
+              let param_val =
                 let l = pvar |> Loc.of_pvar |> Dom.LocWithIdx.of_loc in
-                Dom.Mem.find l mem |> Dom.Val.get_powloc
+                Dom.Mem.find l mem
               in
+              let v = Domain.find formal_loc callee_exit_mem in
+              let v = {v with traces= TraceSet.concat param_val.Dom.Val.traces v.Dom.Val.traces} in
+              let param_var = Dom.Val.get_powloc param_val in
               Dom.PowLocWithIdx.fold
                 (fun l mem -> Domain.add l v mem)
                 (Dom.PowLocWithIdx.join param_var param_powloc)
@@ -137,9 +175,10 @@ module TransferFunctions = struct
         mem
 
 
-  let instantiate_ret ret_id callee_formals callee_pname params bo_mem callee_exit_mem mem =
+  let instantiate_ret ret_id callee_formals callee_pname params location bo_mem callee_exit_mem mem
+      =
     let ret_var = ret_id |> Var.of_id |> Loc.of_var |> APIMisuseDomain.LocWithIdx.of_loc in
-    let subst = make_subst callee_formals params bo_mem mem Dom.Subst.empty in
+    let subst = make_subst callee_formals params location bo_mem mem Dom.Subst.empty in
     let ret_val =
       Domain.find
         (Loc.of_pvar (Pvar.get_ret_pvar callee_pname) |> Dom.LocWithIdx.of_loc)
@@ -149,8 +188,9 @@ module TransferFunctions = struct
     Domain.add ret_var ret_val mem
 
 
-  let instantiate_mem (ret_id, _) callee_formals callee_pname params bo_mem mem callee_exit_mem =
-    instantiate_ret ret_id callee_formals callee_pname params bo_mem callee_exit_mem mem
+  let instantiate_mem (ret_id, _) callee_formals callee_pname params location bo_mem mem
+      callee_exit_mem =
+    instantiate_ret ret_id callee_formals callee_pname params location bo_mem callee_exit_mem mem
     |> instantiate_param callee_formals params bo_mem callee_exit_mem
 
 
@@ -176,7 +216,7 @@ module TransferFunctions = struct
     | Store {e1; e2} ->
         (* e1 can be either PVar or LVar. *)
         let locs1 = Sem.eval_locs e1 bo_mem_opt mem in
-        let v = Sem.eval e2 mem in
+        let v = Sem.eval e2 (CFG.Node.loc node) mem in
         Dom.PowLocWithIdx.fold (fun l m -> Dom.Mem.add l v m) locs1 mem
     | Call (((_, _) as ret), Const (Cfun callee_pname), params, location, _) -> (
         let fun_arg_list =
@@ -194,7 +234,8 @@ module TransferFunctions = struct
             (callee_pname, Tenv.get_summary_formals tenv ~get_summary ~get_formals callee_pname)
           with
           | callee_pname, `Found ((Some {mem= exit_mem}, _), callee_formals) ->
-              instantiate_mem ret callee_formals callee_pname params bo_mem_opt mem exit_mem
+              instantiate_mem ret callee_formals callee_pname params location bo_mem_opt mem
+                exit_mem
           | _, _ ->
               L.d_printfln_escaped "/!\\ Unknown call to %a" Procname.pp callee_pname ;
               mem ) )
@@ -241,7 +282,7 @@ let check_instr {interproc= {InterproceduralAnalysis.tenv; proc_desc}; get_summa
       | None -> (
         match (get_summary callee_pname, get_formals callee_pname) with
         | Some (Some api_summary, Some _), Some callee_formals ->
-            let eval_sym = make_subst callee_formals args bo_mem_opt mem Dom.Subst.empty in
+            let eval_sym = make_subst callee_formals args location bo_mem_opt mem Dom.Subst.empty in
             L.d_printfln_escaped "Callee summary %a" Dom.Summary.pp api_summary ;
             Dom.CondSet.subst eval_sym mem api_summary.Dom.Summary.condset
             |> Dom.CondSet.join condset
@@ -288,8 +329,16 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
         | Dom.Cond.UnInit _ when Dom.Cond.is_init cond |> not ->
             Reporting.log_issue proc_desc err_log ~loc APIMisuse IssueType.api_misuse "UnInit" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
-        | Dom.Cond.Overflow _ when Dom.Cond.may_overflow cond ->
-            Reporting.log_issue proc_desc err_log ~loc APIMisuse IssueType.api_misuse "Overflow" ;
+        | Dom.Cond.Overflow c when Dom.Cond.may_overflow cond ->
+            let ltr =
+              match APIMisuseTrace.Set.min_elt_opt c.traces with
+              | Some trace ->
+                  APIMisuseTrace.Trace.make_err_trace 0 trace []
+              | None ->
+                  [Errlog.make_trace_element 0 loc "" []]
+            in
+            Reporting.log_issue proc_desc err_log ~loc ~ltr APIMisuse IssueType.api_misuse
+              "Overflow" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
         | _ ->
             Dom.CondSet.add cond condset )
