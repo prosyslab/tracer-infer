@@ -444,6 +444,7 @@ module Cond = struct
         ; loc: Location.t
         ; traces: TraceSet.t
         ; reported: bool }
+    | Format of {user_input: UserInput.t; loc: Location.t; traces: TraceSet.t; reported: bool}
   [@@deriving compare]
 
   let make_uninit absloc init loc =
@@ -454,30 +455,59 @@ module Cond = struct
     Overflow {size= int_overflow; user_input; loc; traces; reported= false}
 
 
+  let make_format {Val.user_input} loc =
+    Format {user_input; loc; traces= TraceSet.empty; reported= false}
+
+
   let reported = function
     | UnInit cond ->
         UnInit {cond with reported= true}
     | Overflow cond ->
         Overflow {cond with reported= true}
+    | Format cond ->
+        Format {cond with reported= true}
 
 
   let is_symbolic = function
     | UnInit cond ->
         LocWithIdx.is_symbolic cond.absloc
-    | Overflow _ ->
+    | Overflow _ | Format _ ->
         (* TODO *)
         false
 
 
-  let get_location = function UnInit cond -> cond.loc | Overflow cond -> cond.loc
+  let get_location = function
+    | UnInit cond ->
+        cond.loc
+    | Overflow cond ->
+        cond.loc
+    | Format cond ->
+        cond.loc
 
-  let is_reported = function UnInit cond -> cond.reported | Overflow cond -> cond.reported
+
+  let is_reported = function
+    | UnInit cond ->
+        cond.reported
+    | Overflow cond ->
+        cond.reported
+    | Format cond ->
+        cond.reported
+
 
   let is_init = function UnInit cond -> Init.equal Init.Init cond.init | _ -> false
 
   let may_overflow = function
     | Overflow cond ->
         IntOverflow.is_top cond.size && UserInput.is_taint cond.user_input
+    | _ ->
+        false
+
+
+  let is_user_input = function
+    | Overflow cond ->
+        UserInput.is_taint cond.user_input
+    | Format cond ->
+        UserInput.is_taint cond.user_input
     | _ ->
         false
 
@@ -513,6 +543,8 @@ module Cond = struct
             size= subst_int_overflow cond.size
           ; user_input= subst_user_input cond.user_input
           ; traces= subst_traces cond.traces }
+    | Format cond ->
+        Format {cond with user_input= subst_user_input cond.user_input}
 
 
   let pp fmt = function
@@ -520,6 +552,8 @@ module Cond = struct
         F.fprintf fmt "{absloc: %a, init: %a, loc: %a}" LocWithIdx.pp cond.absloc Init.pp cond.init
           Location.pp cond.loc
     | Overflow cond ->
+        F.fprintf fmt "{loc: %a}" Location.pp cond.loc
+    | Format cond ->
         F.fprintf fmt "{loc: %a}" Location.pp cond.loc
 end
 
@@ -530,7 +564,7 @@ module CondSet = struct
     fold
       (fun cond condset ->
         let cond = Cond.subst eval_sym mem cond in
-        add cond condset )
+        add cond condset)
       condset empty
 end
 

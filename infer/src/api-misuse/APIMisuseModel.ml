@@ -44,8 +44,8 @@ let fread buffer =
                 | Loc field when Loc.is_field_of ~loc:l ~field_loc:field ->
                     Dom.Mem.add l' v mem
                 | _ ->
-                    mem )
-              mem mem )
+                    mem)
+              mem mem)
           locs mem
     | _ ->
         mem
@@ -71,7 +71,7 @@ let malloc size =
                 in
                 Dom.Mem.add loc v mem
             | Some _ ->
-                mem )
+                mem)
           bomem.post mem
     | _ ->
         mem
@@ -80,6 +80,21 @@ let malloc size =
     let v = Sem.eval size location mem in
     let traces = Trace.Set.append (Trace.make_malloc location) v.Dom.Val.traces in
     Dom.CondSet.add (Dom.Cond.make_overflow {v with traces} location) condset
+  in
+  {exec; check}
+
+
+let printf str =
+  let exec _ ~ret:_ mem = mem in
+  let check {location} mem condset =
+    let v = Sem.eval str location mem in
+    let v_powloc = v |> Dom.Val.get_powloc in
+    let user_input_val =
+      Dom.PowLocWithIdx.fold
+        (fun loc v -> Dom.Val.join v (Dom.Mem.find loc mem))
+        v_powloc Dom.Val.bottom
+    in
+    Dom.CondSet.add (Dom.Cond.make_format user_input_val location) condset
   in
   {exec; check}
 
@@ -130,7 +145,7 @@ module StdMap = struct
                 Dom.CondSet.add (Dom.Cond.make_uninit l Dom.Init.UnInit location) condset
               else condset
           | _ ->
-              condset )
+              condset)
         locs condset
     in
     L.d_printfln_escaped "Map.copy_constructor" ;
@@ -249,4 +264,5 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"fread" <>$ capt_exp $+...$--> fread
     ; -"malloc" <>$ capt_exp $--> malloc
     ; -"g_malloc" <>$ capt_exp $--> malloc
-    ; -"__new_array" <>$ capt_exp $--> malloc ]
+    ; -"__new_array" <>$ capt_exp $--> malloc
+    ; -"printf" <>$ capt_exp $--> printf ]
