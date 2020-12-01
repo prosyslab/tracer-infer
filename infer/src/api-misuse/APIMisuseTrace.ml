@@ -74,6 +74,9 @@ end
 module Set = struct
   include AbstractDomain.FiniteSet (Trace)
 
+  (* TODO: heuristic. *)
+  let join x y = if cardinal x + cardinal y > 100 then x else join x y
+
   let append h set = map (Trace.append h) set
 
   let concat set1 set2 =
