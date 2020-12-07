@@ -51,7 +51,7 @@ let dedup (issues : Jsonbug_t.jsonbug list) =
           if is_duplicate_report end_locs reported_ends then (reported_ends, nondup_issues)
           else (LocListSet.add reported_ends end_locs, {issue with access= None} :: nondup_issues)
       | None ->
-          (reported_ends, {issue with access= None} :: nondup_issues) )
+          (reported_ends, {issue with access= None} :: nondup_issues))
   |> snd |> sort_by_location
 
 
@@ -94,8 +94,8 @@ module CostsSummary = struct
             let {Jsonbug_t.polynomial_version; polynomial; degree} = extract_cost_f v in
             if Int.equal polynomial_version CostDomain.BasicCost.version then
               count_aux acc (CostDomain.BasicCost.decode polynomial)
-            else count_aux_degree acc degree )
-          CostIssues.enabled_cost_map acc )
+            else count_aux_degree acc degree)
+          CostIssues.enabled_cost_map acc)
       costs
 
 
@@ -127,7 +127,7 @@ module CostsSummary = struct
     let json_degrees =
       DegreeMap.bindings paired_counts.degrees
       |> List.map ~f:(fun (key, {current; previous}) ->
-             `Assoc [("degree", `Int key); ("current", `Int current); ("previous", `Int previous)] )
+             `Assoc [("degree", `Int key); ("current", `Int current); ("previous", `Int previous)])
     in
     let create_assoc current previous =
       `Assoc [("current", `Int current); ("previous", `Int previous)]
@@ -289,6 +289,7 @@ let issue_of_cost kind CostIssues.{complexity_increase_issue; unreachable_issue;
         :: polynomial_traces issue_type curr_degree_with_term
       |> Errlog.concat_traces
     in
+    let trace = Errlog.LTRSet.singleton trace in
     let severity = IssueType.Advice in
     Some
       { Jsonbug_j.bug_type= issue_type.IssueType.unique_id
@@ -372,7 +373,7 @@ let of_costs ~(current_costs : Jsonbug_t.costs_report) ~(previous_costs : Jsonbu
           else (None, None)
         in
         let degree = cost_info.Jsonbug_t.degree in
-        {CostItem.cost_item= c; polynomial; degree_with_term; degree} )
+        {CostItem.cost_item= c; polynomial; degree_with_term; degree})
   in
   let get_current_costs = decoded_costs current_costs in
   let get_previous_costs = decoded_costs previous_costs in
@@ -381,7 +382,7 @@ let of_costs ~(current_costs : Jsonbug_t.costs_report) ~(previous_costs : Jsonbu
       Map.fold2
         (to_map (get_current_costs ~extract_cost_f))
         (to_map (get_previous_costs ~extract_cost_f))
-        ~f:(fold_aux kind issue_spec) ~init:acc )
+        ~f:(fold_aux kind issue_spec) ~init:acc)
     CostIssues.enabled_cost_map ([], [], [])
 
 

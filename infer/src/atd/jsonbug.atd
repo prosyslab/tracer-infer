@@ -103,7 +103,7 @@ type jsonbug = {
   procedure : string;
   procedure_start_line : int;
   file : string;
-  bug_trace : json_trace_item list;
+  bug_trace : json_trace_item list list;
   key : string;
   ?node_key : string option;
   hash : string;
@@ -132,7 +132,7 @@ type cost_info = {
   polynomial : string;
   ?degree : int option;
   hum : hum_info;
-  trace : json_trace_item list;
+  trace : json_trace_item list list;
 }
 
 

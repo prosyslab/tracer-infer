@@ -25,13 +25,13 @@ let pp_nullsafe_extra fmt
   F.fprintf fmt "%s, %s" class_name (Option.value package ~default:"<no package>") ;
   Option.iter unvetted_3rd_party ~f:(fun unvetted_3rd_party ->
       let third_party_str = String.concat unvetted_3rd_party ~sep:"," in
-      F.fprintf fmt ", unvetted_3rd_party:[%s]" third_party_str ) ;
+      F.fprintf fmt ", unvetted_3rd_party:[%s]" third_party_str) ;
   Option.iter nullable_methods ~f:(fun nullable_methods ->
-      F.fprintf fmt ", nullable_methods:%a" (Pp.seq pp_method_info) nullable_methods ) ;
+      F.fprintf fmt ", nullable_methods:%a" (Pp.seq pp_method_info) nullable_methods) ;
   Option.iter field ~f:(fun Jsonbug_t.{class_name; package_name; field} ->
-      F.fprintf fmt ", field:%s.%s.%s" (Option.value package_name ~default:"") class_name field ) ;
+      F.fprintf fmt ", field:%s.%s.%s" (Option.value package_name ~default:"") class_name field) ;
   Option.iter inconsistent_param_index ~f:(fun index ->
-      F.fprintf fmt ", inconsistent_param_index:%d" index ) ;
+      F.fprintf fmt ", inconsistent_param_index:%d" index) ;
   Option.iter meta_issue_info
     ~f:(fun Jsonbug_t.{num_issues; curr_nullsafe_mode; can_be_promoted_to} ->
       let can_be_promoted_to_str =
@@ -41,10 +41,10 @@ let pp_nullsafe_extra fmt
       in
       F.fprintf fmt ", issues: %d, curr_mode: %s%s" num_issues
         (Jsonbug_j.string_of_nullsafe_mode curr_nullsafe_mode)
-        can_be_promoted_to_str ) ;
+        can_be_promoted_to_str) ;
   Option.iter annotation_graph ~f:(fun annotation_graph ->
       F.fprintf fmt "\nAnnotationGraph:@\n  @[%a@]" NullsafeAnnotationGraphUtils.pp_annotation_graph
-        annotation_graph )
+        annotation_graph)
 
 
 let pp_trace fmt trace comma =
@@ -91,7 +91,8 @@ let pp_custom_of_report fmt report fields =
       | File ->
           F.fprintf fmt "%s%s" (comma_separator index) issue.file
       | BugTrace ->
-          pp_trace fmt issue.bug_trace (comma_separator index)
+          let trace = match issue.bug_trace with h :: _ -> h | _ -> [] in
+          pp_trace fmt trace (comma_separator index)
       | Key ->
           F.fprintf fmt "%s%s" (comma_separator index) (Caml.Digest.to_hex issue.key)
       | Hash ->
@@ -104,7 +105,7 @@ let pp_custom_of_report fmt report fields =
       | NullsafeExtra ->
           let nullsafe_extra = Option.bind issue.extras ~f:(fun extras -> extras.nullsafe_extra) in
           Option.iter nullsafe_extra ~f:(fun nullsafe_extra ->
-              F.fprintf fmt "%s%a" (comma_separator index) pp_nullsafe_extra nullsafe_extra )
+              F.fprintf fmt "%s%a" (comma_separator index) pp_nullsafe_extra nullsafe_extra)
     in
     List.iteri ~f:pp_field fields ;
     F.fprintf fmt "@."
@@ -123,4 +124,4 @@ let write_from_json ~json_path ~out_path issues_tests_fields =
   Utils.with_file_out out_path ~f:(fun outf ->
       let report = Atdgen_runtime.Util.Json.from_file Jsonbug_j.read_report json_path in
       let sorted_report = List.sort ~compare:tests_jsonbug_compare report in
-      pp_custom_of_report (F.formatter_of_out_channel outf) sorted_report issues_tests_fields )
+      pp_custom_of_report (F.formatter_of_out_channel outf) sorted_report issues_tests_fields)

@@ -330,14 +330,8 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
             Reporting.log_issue proc_desc err_log ~loc APIMisuse IssueType.api_misuse "UnInit" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
         | Dom.Cond.Overflow c when Dom.Cond.may_overflow cond ->
-            let ltr =
-              match APIMisuseTrace.Set.min_elt_opt c.traces with
-              | Some trace ->
-                  APIMisuseTrace.Trace.make_err_trace 0 trace []
-              | None ->
-                  [Errlog.make_trace_element 0 loc "" []]
-            in
-            Reporting.log_issue proc_desc err_log ~loc ~ltr APIMisuse IssueType.api_misuse
+            let ltr_set = APIMisuseTrace.Set.make_err_trace c.traces |> Option.some in
+            Reporting.log_issue proc_desc err_log ~loc ~ltr_set APIMisuse IssueType.api_misuse
               "Overflow" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
         | Dom.Cond.Format _ when Dom.Cond.is_user_input cond ->

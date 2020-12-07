@@ -67,8 +67,11 @@ let loc_trace_to_jsonbug_record trace_list ekind =
         ; column_number= trace_item.Errlog.lt_loc.Location.col
         ; description= trace_item.Errlog.lt_description }
       in
-      let record_list = List.rev (List.rev_map ~f:trace_item_to_record trace_list) in
-      record_list
+      Errlog.LTRSet.fold
+        (fun trace res ->
+          let record_list = List.rev (List.rev_map ~f:trace_item_to_record trace) in
+          record_list :: res)
+        trace_list []
 
 
 let should_report issue_type error_desc =
@@ -169,7 +172,7 @@ module JsonIssuePrinter = MakeJsonListPrinter (struct
     if SourceFile.is_invalid source_file then
       L.(die InternalError)
         "Invalid source file for %a %a@.Trace: %a@." IssueType.pp err_key.issue_type
-        Localise.pp_error_desc err_key.err_desc Errlog.pp_loc_trace err_data.loc_trace ;
+        Localise.pp_error_desc err_key.err_desc Errlog.LTRSet.pp err_data.loc_trace ;
     let should_report_proc_name =
       Config.debug_mode || Config.debug_exceptions || not (BiabductionModels.mem proc_name)
     in
@@ -193,7 +196,11 @@ module JsonIssuePrinter = MakeJsonListPrinter (struct
       let qualifier =
         let base_qualifier = error_desc_to_plain_string err_key.err_desc in
         if IssueType.(equal resource_leak) err_key.issue_type then
-          match Errlog.compute_local_exception_line err_data.loc_trace with
+          let rep_trace =
+            if Errlog.LTRSet.is_empty err_data.loc_trace then []
+            else Errlog.LTRSet.min_elt err_data.loc_trace
+          in
+          match Errlog.compute_local_exception_line rep_trace with
           | None ->
               base_qualifier
           | Some line ->
@@ -269,7 +276,8 @@ module JsonCostsPrinter = MakeJsonListPrinter (struct
           ; hum= hum cost
           ; trace=
               loc_trace_to_jsonbug_record
-                (CostDomain.BasicCost.polynomial_traces ?is_autoreleasepool_trace cost)
+                ( CostDomain.BasicCost.polynomial_traces ?is_autoreleasepool_trace cost
+                |> Errlog.LTRSet.singleton )
                 Advice }
         in
         let cost_item =
@@ -326,17 +334,17 @@ let process_all_summaries_and_issues ~issues_outf ~costs_outf =
   let filters = Inferconfig.create_filters () in
   let all_issues = ref [] in
   Summary.OnDisk.iter_report_summaries_from_config ~f:(fun proc_name loc cost_opt err_log ->
-      all_issues := process_summary ~costs_outf proc_name loc cost_opt err_log !all_issues ) ;
+      all_issues := process_summary ~costs_outf proc_name loc cost_opt err_log !all_issues) ;
   all_issues := Issue.sort_filter_issues !all_issues ;
   List.iter
     ~f:(fun {Issue.proc_name; proc_location; err_key; err_data} ->
       let error_filter = mk_error_filter filters proc_name in
       IssuesJson.pp issues_outf.Utils.fmt
-        {error_filter; proc_name; proc_loc_opt= Some proc_location; err_key; err_data} )
+        {error_filter; proc_name; proc_loc_opt= Some proc_location; err_key; err_data})
     !all_issues ;
   (* Issues that are generated and stored outside of summaries by linter and checkers *)
   List.iter (ResultsDirEntryName.get_issues_directories ()) ~f:(fun dir_name ->
-      IssueLog.load dir_name |> IssueLog.iter ~f:(write_lint_issues filters issues_outf linereader) ) ;
+      IssueLog.load dir_name |> IssueLog.iter ~f:(write_lint_issues filters issues_outf linereader)) ;
   ()
 
 

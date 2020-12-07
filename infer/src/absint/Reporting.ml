@@ -8,7 +8,13 @@
 open! IStd
 
 type log_t =
-  ?ltr:Errlog.loc_trace -> ?extras:Jsonbug_t.extra -> Checker.t -> IssueType.t -> string -> unit
+     ?ltr:Errlog.loc_trace
+  -> ?ltr_set:Errlog.LTRSet.t option
+  -> ?extras:Jsonbug_t.extra
+  -> Checker.t
+  -> IssueType.t
+  -> string
+  -> unit
 
 module Suppression = struct
   let does_annotation_suppress_issue (kind : IssueType.t) (annot : Annot.t) =
@@ -91,6 +97,7 @@ let log_issue_from_errlog ?severity_override err_log ~loc ~node ~session ~ltr ~a
 
 let log_frontend_issue errlog ~loc ~node_key ~ltr exn =
   let node = Errlog.FrontendNode {node_key} in
+  let ltr = Errlog.LTRSet.singleton ltr in
   log_issue_from_errlog errlog ~loc ~node ~session:0 ~ltr ~access:None ~extras:None Linters exn
 
 
@@ -133,15 +140,25 @@ let mk_issue_to_report issue_type error_message =
   {IssueToReport.issue_type; description= Localise.verbatim_desc error_message; ocaml_pos= None}
 
 
-let log_issue_from_summary_simplified ?severity_override attrs err_log ~loc ?(ltr = []) ?extras
-    checker issue_type error_message =
+let log_issue_from_summary_simplified ?severity_override attrs err_log ~loc
+    ?(ltr = Errlog.LTRSet.empty) ?extras checker issue_type error_message =
   let issue_to_report = mk_issue_to_report issue_type error_message in
   log_issue_from_summary ?severity_override attrs err_log ~node:Errlog.UnknownNode ~session:0 ~loc
     ~ltr ?extras checker issue_to_report
 
 
-let log_issue attrs err_log ~loc ?ltr ?extras checker issue_type error_message =
-  log_issue_from_summary_simplified attrs err_log ~loc ?ltr ?extras checker issue_type error_message
+(* separate ltr and ltr_set for backward compatibility *)
+let log_issue attrs err_log ~loc ?ltr ?ltr_set ?extras checker issue_type error_message =
+  match ltr_set with
+  | Some ltr ->
+      log_issue_from_summary_simplified attrs err_log ~loc ?ltr ?extras checker issue_type
+        error_message
+  | None ->
+      let ltr =
+        match ltr with None -> Errlog.LTRSet.empty | Some ltr -> Errlog.LTRSet.singleton ltr
+      in
+      log_issue_from_summary_simplified attrs err_log ~loc ~ltr ?extras checker issue_type
+        error_message
 
 
 let log_issue_external procname ~issue_log ?severity_override ~loc ~ltr ?access ?extras checker
@@ -149,6 +166,7 @@ let log_issue_external procname ~issue_log ?severity_override ~loc ~ltr ?access 
   let issue_to_report = mk_issue_to_report issue_type error_message in
   let issue_log, errlog = IssueLog.get_or_add issue_log ~proc:procname in
   let node = Errlog.UnknownNode in
+  let ltr = Errlog.LTRSet.singleton ltr in
   log_issue_from_errlog ?severity_override errlog ~loc ~node ~session:0 ~ltr ~access ~extras checker
     issue_to_report ;
   issue_log

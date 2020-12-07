@@ -15,6 +15,7 @@ type node_tag =
   | Exception of Typ.name
   | Procedure_start of Procname.t
   | Procedure_end of Procname.t
+[@@deriving compare]
 
 (** Element of a loc trace *)
 type loc_trace_elem =
@@ -22,6 +23,7 @@ type loc_trace_elem =
   ; lt_loc: Location.t  (** source location at the current step in the trace *)
   ; lt_description: string  (** description of the current step in the trace *)
   ; lt_node_tags: node_tag list  (** tags describing the node at the current location *) }
+[@@deriving compare]
 
 let pp_loc_trace_elem fmt {lt_level; lt_loc} = F.fprintf fmt "%d %a" lt_level Location.pp lt_loc
 
@@ -39,7 +41,15 @@ let make_trace_element lt_level lt_loc lt_description lt_node_tags =
 
 
 (** Trace of locations *)
-type loc_trace = loc_trace_elem list
+type loc_trace = loc_trace_elem list [@@deriving compare]
+
+module LTRSet = PrettyPrintable.MakePPSet (struct
+  type t = loc_trace
+
+  let pp = pp_loc_trace
+
+  let compare = List.compare compare_loc_trace_elem
+end)
 
 let concat_traces labelled_traces =
   List.fold_right labelled_traces ~init:[] ~f:(fun labelled_trace res ->
@@ -49,7 +59,7 @@ let concat_traces labelled_traces =
       | "", trace ->
           trace @ res
       | label, ({lt_loc} :: _ as trace) ->
-          (make_trace_element 0 lt_loc label [] :: trace) @ res )
+          (make_trace_element 0 lt_loc label [] :: trace) @ res)
 
 
 let compute_local_exception_line loc_trace =
@@ -82,7 +92,7 @@ type err_data =
   ; session: int
   ; loc: Location.t
   ; loc_in_ml_source: L.ocaml_pos option
-  ; loc_trace: loc_trace
+  ; loc_trace: LTRSet.t
   ; visibility: IssueType.visibility
   ; linters_def_file: string option
   ; doc_url: string option

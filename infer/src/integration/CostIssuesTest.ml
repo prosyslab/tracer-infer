@@ -30,6 +30,7 @@ let pp_custom_of_cost_report fmt report cost_fields =
             if Config.cost_tests_only_autoreleasepool then cost_item.autoreleasepool_size.trace
             else cost_item.exec_cost.trace
           in
+          let trace = match trace with h :: _ -> h | _ -> [] in
           IssuesTest.pp_trace fmt trace (comma_separator index)
     in
     List.iteri ~f:pp_cost_field cost_fields ;
@@ -60,4 +61,4 @@ let write_from_json ~json_path ~out_path cost_issues_tests_fields =
       let cost_report = Atdgen_runtime.Util.Json.from_file Jsonbug_j.read_costs_report json_path in
       let sorted_cost_report = List.sort ~compare:cost_tests_jsonbug_compare cost_report in
       pp_custom_of_cost_report (F.formatter_of_out_channel outf) sorted_cost_report
-        cost_issues_tests_fields )
+        cost_issues_tests_fields)

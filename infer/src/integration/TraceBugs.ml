@@ -20,7 +20,7 @@ let with_file_fmt file ~f =
   Utils.with_file_out file ~f:(fun outc ->
       let fmt = F.formatter_of_out_channel outc in
       f fmt ;
-      F.pp_print_flush fmt () )
+      F.pp_print_flush fmt ())
 
 
 let pp_trace_item ~show_source_context fmt
@@ -35,12 +35,13 @@ let pp_trace_item ~show_source_context fmt
 let pp_issue_with_trace ~show_source_context ~max_nested_level fmt issue_with_n =
   F.fprintf fmt "%a@\n" TextReport.pp_jsonbug_with_number issue_with_n ;
   let issue : Jsonbug_t.jsonbug = snd issue_with_n in
-  if List.is_empty issue.bug_trace then F.fprintf fmt "@\nEmpty trace@\n%!"
+  let trace = match issue.bug_trace with h :: _ -> h | _ -> [] in
+  if List.is_empty trace then F.fprintf fmt "@\nEmpty trace@\n%!"
   else
-    List.iter issue.bug_trace ~f:(fun trace_item ->
+    List.iter trace ~f:(fun trace_item ->
         (* subtract 1 to get inclusive limits on the nesting level *)
         if not (is_past_limit max_nested_level (trace_item.Jsonbug_t.level - 1)) then
-          F.fprintf fmt "@\n%a" (pp_trace_item ~show_source_context) trace_item )
+          F.fprintf fmt "@\n%a" (pp_trace_item ~show_source_context) trace_item)
 
 
 let user_select_issue ~selector_limit report =
@@ -51,7 +52,7 @@ let user_select_issue ~selector_limit report =
       if is_past_limit selector_limit n then Stop ()
       else (
         L.result "%a@\n" TextReport.pp_jsonbug_with_number (n, issue) ;
-        Continue (n + 1) ) ) ;
+        Continue (n + 1) )) ;
   let rec ask_until_valid_input max_report =
     L.result "@\nSelect report to display (0-%d) (default: 0): %!" max_report ;
     let input = In_channel.input_line_exn In_channel.stdin in
@@ -134,7 +135,7 @@ module GitHub = struct
             in
             Result.map result ~f:(fun () ->
                 let root = String.strip root in
-                {project; commit; root} ) )
+                {project; commit; root}))
         |> function
         | Ok repo_state ->
             L.progress "Found GitHub %a@\n" pp repo_state ;
@@ -199,7 +200,7 @@ let gen_html_report ~show_source_context ~max_nested_level ~report_json ~report_
       if has_trace issue then
         let file = report_html_dir ^/ trace_path_of_bug_number ~traces_dir i in
         with_file_fmt file ~f:(fun fmt ->
-            pp_issue_with_trace ~show_source_context ~max_nested_level fmt (i, issue) ) ) ;
+            pp_issue_with_trace ~show_source_context ~max_nested_level fmt (i, issue))) ;
   let report_html = report_html_dir ^/ "index.html" in
   with_file_fmt report_html ~f:(fun fmt -> pp_html_index ~traces_dir fmt report) ;
   L.result "Saved HTML report in '%s'@." report_html

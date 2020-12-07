@@ -33,6 +33,7 @@ let report_error {IntraproceduralAnalysis.proc_desc; tenv; err_log} checker ?(fi
       {IssueToReport.issue_type; description= localized_description; ocaml_pos= None}
     in
     let trace = [Errlog.make_trace_element 0 loc description []] in
+    let trace = Errlog.LTRSet.singleton trace in
     let node = AnalysisState.get_node_exn () in
     let session = AnalysisState.get_session () in
     Reporting.log_issue_from_summary ~severity_override:severity proc_desc err_log

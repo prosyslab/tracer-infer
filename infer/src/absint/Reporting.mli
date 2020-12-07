@@ -10,7 +10,13 @@ open! IStd
 (** Type of functions to report issues to the error_log in a spec. *)
 
 type log_t =
-  ?ltr:Errlog.loc_trace -> ?extras:Jsonbug_t.extra -> Checker.t -> IssueType.t -> string -> unit
+     ?ltr:Errlog.loc_trace
+  -> ?ltr_set:Errlog.LTRSet.t option
+  -> ?extras:Jsonbug_t.extra
+  -> Checker.t
+  -> IssueType.t
+  -> string
+  -> unit
 
 val log_issue_from_summary :
      ?severity_override:IssueType.severity
@@ -19,7 +25,7 @@ val log_issue_from_summary :
   -> node:Errlog.node
   -> session:int
   -> loc:Location.t
-  -> ltr:Errlog.loc_trace
+  -> ltr:Errlog.LTRSet.t
   -> ?extras:Jsonbug_t.extra
   -> Checker.t
   -> IssueToReport.t

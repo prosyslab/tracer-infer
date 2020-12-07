@@ -28,6 +28,8 @@ val make_trace_element : int -> Location.t -> string -> node_tag list -> loc_tra
 (** Trace of locations *)
 type loc_trace = loc_trace_elem list
 
+module LTRSet : PrettyPrintable.PPSet with type elt = loc_trace
+
 val concat_traces : (string * loc_trace) list -> loc_trace
 
 val compute_local_exception_line : loc_trace -> int option
@@ -51,7 +53,7 @@ type err_data = private
   ; session: int
   ; loc: Location.t
   ; loc_in_ml_source: Logging.ocaml_pos option
-  ; loc_trace: loc_trace
+  ; loc_trace: LTRSet.t
   ; visibility: IssueType.visibility
   ; linters_def_file: string option
   ; doc_url: string option  (** url to documentation of the issue type *)
@@ -93,7 +95,7 @@ val log_issue :
   -> loc:Location.t
   -> node:node
   -> session:int
-  -> ltr:loc_trace
+  -> ltr:LTRSet.t
   -> linters_def_file:string option
   -> doc_url:string option
   -> access:string option

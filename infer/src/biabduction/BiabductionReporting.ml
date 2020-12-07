@@ -17,6 +17,7 @@ let log_issue_deprecated_using_state proc_desc err_log ?node ?loc ?ltr exn =
     let loc = match loc with None -> AnalysisState.get_loc_exn () | Some loc -> loc in
     let ltr = match ltr with None -> State.get_loc_trace () | Some ltr -> ltr in
     let issue_to_report = Exceptions.recognize_exception exn in
+    let ltr = Errlog.LTRSet.singleton ltr in
     Reporting.log_issue_from_summary proc_desc err_log ~node ~session ~loc ~ltr Biabduction
       issue_to_report
 
@@ -32,6 +33,7 @@ let log_issue_using_state proc_desc err_log exn =
       match AnalysisState.get_loc () with Some l -> l | None -> Procdesc.Node.get_loc node'
     in
     let ltr = State.get_loc_trace () in
+    let ltr = Errlog.LTRSet.singleton ltr in
     let issue_to_report = Exceptions.recognize_exception exn in
     Reporting.log_issue_from_summary proc_desc err_log ~node ~session ~loc ~ltr Biabduction
       issue_to_report

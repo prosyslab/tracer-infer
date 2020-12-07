@@ -86,6 +86,11 @@ module Set = struct
 
 
   let widen ~prev ~next ~num_iters = if num_iters > 2 then prev else join prev next
+
+  let make_err_trace set =
+    fold
+      (fun tr s -> Trace.make_err_trace 0 tr [] |> Fun.flip Errlog.LTRSet.add s)
+      set Errlog.LTRSet.empty
 end
 
 include Trace
