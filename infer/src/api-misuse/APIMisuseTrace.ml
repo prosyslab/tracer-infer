@@ -54,7 +54,7 @@ module Trace = struct
     | Input l ->
         F.fprintf fmt "Input (%a)" Location.pp l
     | BinOp l ->
-        F.fprintf fmt "BiOp (%a)" Location.pp l
+        F.fprintf fmt "BinOp (%a)" Location.pp l
     | Call l ->
         F.fprintf fmt "Call (%a)" Location.pp l
     | Malloc l ->
@@ -83,6 +83,9 @@ module Set = struct
     if is_empty set1 then set2
     else if is_empty set2 then set1
     else fold (fun t1 set -> fold (fun t2 set -> add (Trace.concat t1 t2) set) set2 set) set1 empty
+
+
+  let widen ~prev ~next ~num_iters = if num_iters > 2 then prev else join prev next
 end
 
 include Trace

@@ -398,7 +398,7 @@ module Val = struct
     ; int_overflow= IntOverflow.widen ~prev:prev.int_overflow ~next:next.int_overflow ~num_iters
     ; user_input= UserInput.widen ~prev:prev.user_input ~next:next.user_input ~num_iters
     ; str= Str.widen ~prev:prev.str ~next:next.str ~num_iters
-    ; traces= TraceSet.join prev.traces next.traces }
+    ; traces= TraceSet.widen ~prev:prev.traces ~next:next.traces ~num_iters }
 
 
   let leq ~lhs ~rhs =
