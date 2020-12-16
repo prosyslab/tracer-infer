@@ -162,6 +162,9 @@ module PowLocWithIdx = struct
   let leq ~lhs ~rhs = subset lhs rhs
 
   let of_pow_loc ploc = PowLoc.fold (fun l s -> add (LocWithIdx.of_loc l) s) ploc bottom
+
+  let to_pow_loc plocwithind =
+    fold (fun l s -> PowLoc.add (LocWithIdx.to_loc l) s) plocwithind PowLoc.bot
 end
 
 module IntOverflow = struct
@@ -303,6 +306,10 @@ module Subst = struct
     ; subst_int_overflow= Fun.id
     ; subst_user_input= Fun.id
     ; subst_traces= Fun.id }
+
+
+  let apply_subst_powloc subst_powloc powloc =
+    PowLoc.fold (fun loc result -> PowLoc.join (subst_powloc loc) result) powloc PowLoc.bot
 end
 
 module Val = struct
@@ -444,7 +451,12 @@ module Cond = struct
         ; loc: Location.t
         ; traces: TraceSet.t
         ; reported: bool }
-    | Format of {user_input: UserInput.t; loc: Location.t; traces: TraceSet.t; reported: bool}
+    | Format of
+        { powloc: PowLocWithIdx.t
+        ; user_input: UserInput.t
+        ; loc: Location.t
+        ; traces: TraceSet.t
+        ; reported: bool }
   [@@deriving compare]
 
   let make_uninit absloc init loc =
@@ -455,8 +467,8 @@ module Cond = struct
     Overflow {size= int_overflow; user_input; loc; traces; reported= false}
 
 
-  let make_format {Val.user_input} loc =
-    Format {user_input; loc; traces= TraceSet.empty; reported= false}
+  let make_format {Val.powloc; traces} {Val.user_input} loc =
+    Format {powloc; user_input; loc; traces; reported= false}
 
 
   let reported = function
@@ -544,7 +556,21 @@ module Cond = struct
           ; user_input= subst_user_input cond.user_input
           ; traces= subst_traces cond.traces }
     | Format cond ->
-        Format {cond with user_input= subst_user_input cond.user_input}
+        let substed_powloc =
+          cond.powloc |> PowLocWithIdx.to_pow_loc
+          |> Subst.apply_subst_powloc subst_powloc
+          |> PowLocWithIdx.of_pow_loc
+        in
+        let user_input_v =
+          PowLocWithIdx.fold
+            (fun l ui -> Mem.find l mem |> Val.get_user_input |> UserInput.join ui)
+            substed_powloc UserInput.bottom
+        in
+        Format
+          { cond with
+            powloc= substed_powloc
+          ; user_input= subst_user_input (UserInput.join user_input_v cond.user_input)
+          ; traces= subst_traces cond.traces }
 
 
   let pp fmt = function

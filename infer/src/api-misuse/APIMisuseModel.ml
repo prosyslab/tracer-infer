@@ -53,6 +53,17 @@ let fread buffer =
   {exec; check= empty_check_fun}
 
 
+let getc _ =
+  let exec {node; location} ~ret mem =
+    let id, _ = ret in
+    let traces = [Trace.make_input location] |> Trace.Set.singleton in
+    let v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
+    let loc = Dom.LocWithIdx.of_loc (Loc.of_id id) in
+    Dom.Mem.add loc v mem
+  in
+  {exec; check= empty_check_fun}
+
+
 let malloc size =
   let exec {bo_mem_opt} ~ret:_ (mem : Sem.Mem.t) =
     match bo_mem_opt with
@@ -84,8 +95,23 @@ let malloc size =
   {exec; check}
 
 
+let calloc n size =
+  let malloc_size = Exp.BinOp (Binop.Mult (Some Typ.IUInt), n, size) in
+  malloc malloc_size
+
+
+let strdup str =
+  let exec {location} ~ret mem =
+    let id, _ = ret in
+    let v = Sem.eval str location mem in
+    let _ = L.d_printfln_escaped "strdup : %a" Dom.Val.pp v in
+    let loc = Dom.LocWithIdx.of_loc (Loc.of_id id) in
+    Dom.Mem.add loc v mem
+  in
+  {exec; check= empty_check_fun}
+
+
 let printf str =
-  let exec _ ~ret:_ mem = mem in
   let check {location} mem condset =
     let v = Sem.eval str location mem in
     let v_powloc = v |> Dom.Val.get_powloc in
@@ -94,10 +120,13 @@ let printf str =
         (fun loc v -> Dom.Val.join v (Dom.Mem.find loc mem))
         v_powloc Dom.Val.bottom
     in
-    Dom.CondSet.add (Dom.Cond.make_format user_input_val location) condset
+    let traces = Trace.Set.append (Trace.make_printf location) v.Dom.Val.traces in
+    Dom.CondSet.add (Dom.Cond.make_format {v with traces} user_input_val location) condset
   in
-  {exec; check}
+  {exec= empty_exec_fun; check}
 
+
+let vsnprintf _ _ str = printf str
 
 module StdMap = struct
   let allocate_map pname node_hash pvar mem =
@@ -265,4 +294,9 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"malloc" <>$ capt_exp $--> malloc
     ; -"g_malloc" <>$ capt_exp $--> malloc
     ; -"__new_array" <>$ capt_exp $--> malloc
-    ; -"printf" <>$ capt_exp $--> printf ]
+    ; -"calloc" <>$ capt_exp $+ capt_exp $+...$--> calloc
+    ; -"printf" <>$ capt_exp $--> printf
+    ; -"vsnprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> vsnprintf
+    ; -"_IO_getc" <>$ capt_exp $--> getc
+    ; -"fgetc" <>$ capt_exp $--> getc
+    ; -"strdup" <>$ capt_exp $--> strdup ]

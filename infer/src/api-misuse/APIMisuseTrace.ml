@@ -23,6 +23,8 @@ module Trace = struct
 
   let make_symbol_decl l = SymbolDecl l
 
+  let make_printf loc = Printf loc
+
   let append h t = h :: t
 
   let rec make_err_trace depth t tail =

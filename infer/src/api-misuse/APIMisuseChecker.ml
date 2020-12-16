@@ -177,7 +177,7 @@ module TransferFunctions = struct
 
   let instantiate_ret ret_id callee_formals callee_pname params location bo_mem callee_exit_mem mem
       =
-    let ret_var = ret_id |> Var.of_id |> Loc.of_var |> APIMisuseDomain.LocWithIdx.of_loc in
+    let ret_var = ret_id |> Loc.of_id |> Dom.LocWithIdx.of_loc in
     let subst = make_subst callee_formals params location bo_mem mem Dom.Subst.empty in
     let ret_val =
       Domain.find
@@ -185,7 +185,23 @@ module TransferFunctions = struct
         callee_exit_mem
       |> Dom.Val.subst subst
     in
-    Domain.add ret_var ret_val mem
+    let rec add_val_rec var present_mem present_depth =
+      if present_depth > 3 then present_mem
+      else
+        let add_val = Domain.find var callee_exit_mem |> Dom.Val.subst subst in
+        let add_val_powloc = Dom.Val.get_powloc add_val in
+        let new_mem =
+          Dom.PowLocWithIdx.fold
+            (fun l m -> Dom.Mem.join m (add_val_rec l m (present_depth + 1)))
+            add_val_powloc present_mem
+        in
+        Domain.add var add_val new_mem
+    in
+    let ret_val_powloc = Dom.Val.get_powloc ret_val in
+    let new_mem =
+      Dom.PowLocWithIdx.fold (fun l m -> Dom.Mem.join m (add_val_rec l m 0)) ret_val_powloc mem
+    in
+    Domain.add ret_var ret_val new_mem
 
 
   let instantiate_mem (ret_id, _) callee_formals callee_pname params location bo_mem mem
@@ -210,7 +226,12 @@ module TransferFunctions = struct
             (fun l v -> Dom.Mem.find_on_demand ~typ l mem |> Dom.Val.join v)
             (Sem.eval_locs e bo_mem_opt mem) Dom.Val.bottom
         in
-        Dom.Mem.add loc v mem
+        let new_mem = Dom.Mem.add loc v mem in
+        let v_powloc = Dom.Val.get_powloc v in
+        Dom.PowLocWithIdx.fold
+          (fun l m ->
+            match Dom.Mem.find_opt l m with Some _ -> m | None -> Dom.Mem.add l Dom.Val.bottom m)
+          v_powloc new_mem
     | Prune _ ->
         mem
     | Store {e1; e2} ->
@@ -330,12 +351,15 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
             Reporting.log_issue proc_desc err_log ~loc APIMisuse IssueType.api_misuse "UnInit" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
         | Dom.Cond.Overflow c when Dom.Cond.may_overflow cond ->
-            let ltr_set = APIMisuseTrace.Set.make_err_trace c.traces |> Option.some in
+            let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
             Reporting.log_issue proc_desc err_log ~loc ~ltr_set APIMisuse IssueType.api_misuse
               "Overflow" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
-        | Dom.Cond.Format _ when Dom.Cond.is_user_input cond ->
-            Reporting.log_issue proc_desc err_log ~loc APIMisuse IssueType.api_misuse "Format" ;
+        | Dom.Cond.Format c when Dom.Cond.is_user_input cond ->
+            let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
+            let _ = F.printf "report loc : %a\n\n" Location.pp_file_pos loc in
+            Reporting.log_issue proc_desc err_log ~loc ~ltr_set APIMisuse IssueType.api_misuse
+              "Format" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
         | _ ->
             Dom.CondSet.add cond condset)
