@@ -31,7 +31,7 @@ type analysis_data =
       -> (APIMisuseDomain.Summary.t option * BufferOverrunAnalysisSummary.t option) option
   ; get_formals: Procname.t -> (Pvar.t * Typ.t) list option }
 
-let make_subst_traces p v location mem s =
+let make_subst_traces p v location mem subst_traces s =
   let sym_absloc = Allocsite.make_symbol p |> Loc.of_allocsite in
   let sym_absloc_deref =
     SPath.deref ~deref_kind:SPath.Deref_CPointer p |> Allocsite.make_symbol |> Loc.of_allocsite
@@ -62,10 +62,11 @@ let make_subst_traces p v location mem s =
       | _ ->
           TraceSet.add trace set)
     s TraceSet.empty
+  |> subst_traces
 
 
 let rec make_subst formals actuals location bo_mem mem
-    ({Dom.Subst.subst_powloc; subst_int_overflow; subst_user_input} as subst) =
+    ({Dom.Subst.subst_powloc; subst_int_overflow; subst_user_input; subst_traces} as subst) =
   match (formals, actuals) with
   | (pvar, _) :: t1, (exp, _) :: t2 -> (
     match pvar |> Loc.of_pvar |> Loc.get_path with
@@ -74,20 +75,18 @@ let rec make_subst formals actuals location bo_mem mem
         let sym_int_overflow = Dom.IntOverflow.make_symbol p in
         let sym_user_input = Dom.UserInput.make_symbol p in
         L.(debug Analysis Quiet) "make subst sym: %a\n" AbsLoc.Loc.pp sym_absloc ;
-        let v = Sem.eval exp location mem in
-        let locs = Dom.Val.get_powloc v in
-        let locs =
+        let ({Dom.Val.powloc; int_overflow; user_input; _} as v) = Sem.eval exp location mem in
+        L.d_printfln_escaped "make subst: %a %a\n" SPath.pp_partial p Dom.Val.pp v ;
+        let powloc =
           Dom.PowLocWithIdx.fold
             (fun l s -> Dom.LocWithIdx.to_loc l |> Fun.flip AbsLoc.PowLoc.add s)
-            locs AbsLoc.PowLoc.bot
+            powloc AbsLoc.PowLoc.bot
         in
-        let int_overflow = Dom.Val.get_int_overflow v in
-        let user_input = Dom.Val.get_user_input v in
-        L.(debug Analysis Quiet) "make subst locs: %a\n" AbsLoc.PowLoc.pp locs ;
+        L.(debug Analysis Quiet) "make subst locs: %a\n" AbsLoc.PowLoc.pp powloc ;
         L.(debug Analysis Quiet) "make subst int overflow: %a\n" Dom.IntOverflow.pp int_overflow ;
         L.(debug Analysis Quiet) "make subst user input: %a\n" Dom.UserInput.pp user_input ;
         { Dom.Subst.subst_powloc=
-            (fun s -> if AbsLoc.Loc.equal s sym_absloc then locs else subst_powloc s)
+            (fun s -> if AbsLoc.Loc.equal s sym_absloc then powloc else subst_powloc s)
         ; subst_int_overflow=
             (fun s ->
               if Dom.IntOverflow.equal s sym_int_overflow then int_overflow
@@ -118,7 +117,7 @@ let rec make_subst formals actuals location bo_mem mem
                     ss Dom.UserInput.bottom
               | _ ->
                   subst_user_input s)
-        ; subst_traces= make_subst_traces p v location mem }
+        ; subst_traces= make_subst_traces p v location mem subst_traces }
         |> make_subst t1 t2 location bo_mem mem
     | _ ->
         subst )
