@@ -343,20 +343,39 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
       if Dom.Cond.is_symbolic cond || Dom.Cond.is_reported cond then Dom.CondSet.add cond condset
       else
         let loc = Dom.Cond.get_location cond in
+        let report_src_sink_pair cond ~ltr_set (bug_type : string) =
+          let user_input_set = Dom.Cond.extract_user_input cond in
+          Dom.UserInput.Set.iter
+            (fun (_, src_loc) ->
+              let src_loc =
+                Jsonbug_t.
+                  { file= SourceFile.to_string src_loc.file
+                  ; lnum= src_loc.line
+                  ; cnum= src_loc.col
+                  ; enum= 0 }
+              in
+              let extras =
+                Jsonbug_t.
+                  { nullsafe_extra= None
+                  ; cost_polynomial= None
+                  ; cost_degree= None
+                  ; bug_src_loc= Some src_loc }
+              in
+              Reporting.log_issue proc_desc err_log ~loc ~ltr_set ~extras APIMisuse
+                IssueType.api_misuse bug_type)
+            user_input_set
+        in
         match cond with
         | Dom.Cond.UnInit _ when Dom.Cond.is_init cond |> not ->
             Reporting.log_issue proc_desc err_log ~loc APIMisuse IssueType.api_misuse "UnInit" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
         | Dom.Cond.Overflow c when Dom.Cond.may_overflow cond ->
             let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
-            Reporting.log_issue proc_desc err_log ~loc ~ltr_set APIMisuse IssueType.api_misuse
-              "Overflow" ;
+            report_src_sink_pair cond ~ltr_set "Overflow" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
         | Dom.Cond.Format c when Dom.Cond.is_user_input cond ->
             let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
-            let _ = F.printf "report loc : %a\n\n" Location.pp_file_pos loc in
-            Reporting.log_issue proc_desc err_log ~loc ~ltr_set APIMisuse IssueType.api_misuse
-              "Format" ;
+            report_src_sink_pair cond ~ltr_set "Format" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
         | _ ->
             Dom.CondSet.add cond condset)

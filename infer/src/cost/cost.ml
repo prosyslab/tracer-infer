@@ -34,7 +34,7 @@ let instantiate_cost ?get_closure_callee_cost ~default_closure_cost integer_type
   in
   let get_closure_callee_cost pname =
     Option.bind get_closure_callee_cost ~f:(fun get_closure_callee_cost ->
-        get_closure_callee_cost pname )
+        get_closure_callee_cost pname)
   in
   BasicCostWithReason.subst callee_pname loc callee_cost eval_sym eval_func_ptrs
     get_closure_callee_cost ~default_closure_cost
@@ -59,7 +59,7 @@ module InstrBasicCostWithReason = struct
     Option.exists (get_proc_desc callee_pname) ~f:(fun callee_pdesc ->
         Procdesc.is_defined callee_pdesc
         && (not (Procdesc.is_objc_arc_on caller_pdesc))
-        && Procdesc.is_objc_arc_on callee_pdesc )
+        && Procdesc.is_objc_arc_on callee_pdesc)
 
 
   let dispatch_operation tenv callee_pname callee_cost_opt fun_arg_list get_summary model_env ret
@@ -125,7 +125,7 @@ module InstrBasicCostWithReason = struct
                in
                Some (CostDomain.construct ~f:(fun _ -> symbolic_cost))
            | _ ->
-               None )
+               None)
     |> Option.value ~default:CostDomain.unit_cost_atomic_operation
 
 
@@ -142,7 +142,7 @@ module InstrBasicCostWithReason = struct
         in
         let fun_arg_list =
           List.map params ~f:(fun (exp, typ) ->
-              ProcnameDispatcher.Call.FuncArg.{exp; typ; arg_payload= ()} )
+              ProcnameDispatcher.Call.FuncArg.{exp; typ; arg_payload= ()})
         in
         let inferbo_mem_opt =
           BufferOverrunAnalysis.extract_pre (InstrCFG.Node.id instr_node) inferbo_invariant_map
@@ -151,7 +151,7 @@ module InstrBasicCostWithReason = struct
           lazy
             (let node_hash = InstrCFG.Node.hash instr_node in
              BufferOverrunUtils.ModelEnv.mk_model_env callee_pname ~node_hash location tenv
-               integer_type_widths inferbo_get_summary )
+               integer_type_widths inferbo_get_summary)
         in
         let get_callee_cost_opt kind inferbo_mem =
           let default_closure_cost =
@@ -168,11 +168,11 @@ module InstrBasicCostWithReason = struct
                      let get_closure_callee_cost pname =
                        get_summary pname
                        |> Option.map ~f:(fun {CostDomain.post} ->
-                              CostDomain.get_cost_kind kind post )
+                              CostDomain.get_cost_kind kind post)
                      in
                      instantiate_cost ~get_closure_callee_cost ~default_closure_cost
                        integer_type_widths ~inferbo_caller_mem:inferbo_mem ~callee_pname
-                       ~callee_formals ~params ~callee_cost ~loc:location )
+                       ~callee_formals ~params ~callee_cost ~loc:location)
           | _ ->
               None
         in
@@ -190,7 +190,7 @@ module InstrBasicCostWithReason = struct
                     dispatch_allocation tenv callee_pname callee_cost_opt
                 | AutoreleasepoolSize ->
                     dispatch_autoreleasepool tenv callee_pname callee_cost_opt fun_arg_list extras
-                      model_env ret cfg location inferbo_mem ) )
+                      model_env ret cfg location inferbo_mem) )
     | Sil.Call (_, Exp.Const (Const.Cfun _), _, _, _) ->
         CostDomain.zero_record
     | Sil.Call (_, fun_exp, _, location, _) ->
@@ -233,7 +233,8 @@ end
 let compute_errlog_extras cost =
   { Jsonbug_t.cost_polynomial= Some (Format.asprintf "%a" BasicCostWithReason.pp_hum cost)
   ; cost_degree= BasicCostWithReason.degree cost |> Option.map ~f:Polynomials.Degree.encode_to_int
-  ; nullsafe_extra= None }
+  ; nullsafe_extra= None
+  ; bug_src_loc= None }
 
 
 (** Calculate the final Worst Case Cost of the cfg. It is the dot product of the symbolic cost of
@@ -265,12 +266,12 @@ module WorstCaseCost = struct
               CostDomain.set_autoreleasepool_size_zero cost
             else cost
           in
-          CostDomain.plus acc cost )
+          CostDomain.plus acc cost)
     in
     Option.iter (CostDomain.get_operation_cost cost).top_pname_opt ~f:(fun top_pname ->
         ScubaLogging.cost_log_message ~label:"unmodeled_function_top_cost"
           ~message:(F.asprintf "Unmodeled Function[Top Cost] : %a" Procname.pp top_pname) ;
-        L.debug Analysis Verbose "@\nUnmodeled Function[Top Cost]: %a@\n" Procname.pp top_pname ) ;
+        L.debug Analysis Verbose "@\nUnmodeled Function[Top Cost]: %a@\n" Procname.pp top_pname) ;
     cost
 end
 
@@ -307,22 +308,23 @@ module Check = struct
   let report_expensive ~report ~expensive_issue cost =
     Option.iter (BasicCostWithReason.degree cost) ~f:(fun degree ->
         if not (Polynomials.Degree.is_constant degree) then
-          report expensive_issue "has non-constant cost" )
+          report expensive_issue "has non-constant cost")
 
 
   let check_and_report {InterproceduralAnalysis.proc_desc; err_log} cost =
     let pname = Procdesc.get_proc_name proc_desc in
     if not (is_report_suppressed pname) then
       CostIssues.CostKindMap.iter2 CostIssues.enabled_cost_map cost
-        ~f:(fun kind
-           CostIssues.
-             { name
-             ; unreachable_issue
-             ; infinite_issue
-             ; expensive_issue
-             ; top_and_unreachable
-             ; expensive }
-           cost
+        ~f:(fun
+             kind
+             CostIssues.
+               { name
+               ; unreachable_issue
+               ; infinite_issue
+               ; expensive_issue
+               ; top_and_unreachable
+               ; expensive }
+             cost
            ->
           let report =
             mk_report proc_desc pname err_log (Procdesc.get_loc proc_desc) ~name
@@ -330,7 +332,7 @@ module Check = struct
           in
           if top_and_unreachable then
             report_top_and_unreachable ~report ~unreachable_issue ~infinite_issue cost ;
-          if expensive then report_expensive ~report ~expensive_issue cost )
+          if expensive then report_expensive ~report ~expensive_issue cost)
 end
 
 type bound_map = BasicCost.t Node.IdMap.t
@@ -358,7 +360,7 @@ let compute_get_node_nb_exec node_cfg bound_map : get_node_nb_exec =
     ~f:(fun () ->
       let equalities = ConstraintSolver.collect_constraints ~debug node_cfg in
       let () = ConstraintSolver.compute_costs ~debug bound_map equalities in
-      ConstraintSolver.get_node_nb_exec equalities )
+      ConstraintSolver.get_node_nb_exec equalities)
 
 
 let get_cost_summary ~is_on_ui_thread astate = {CostDomain.post= astate; is_on_ui_thread}
@@ -366,7 +368,7 @@ let get_cost_summary ~is_on_ui_thread astate = {CostDomain.post= astate; is_on_u
 let just_throws_exception proc_desc =
   Procdesc.get_nodes proc_desc |> List.length <= 5
   && Procdesc.fold_instrs proc_desc ~init:false ~f:(fun acc _node instr ->
-         match instr with Sil.Store {e1= Lvar pvar; e2= Exn _} -> Pvar.is_return pvar | _ -> acc )
+         match instr with Sil.Store {e1= Lvar pvar; e2= Exn _} -> Pvar.is_return pvar | _ -> acc)
 
 
 let checker ({InterproceduralAnalysis.proc_desc; exe_env; analyze_dependency} as analysis_data) =

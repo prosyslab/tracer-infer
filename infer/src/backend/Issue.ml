@@ -20,7 +20,7 @@ type err_data_ = Errlog.err_data
 
 (* no derived compare for err_data; just compare the locations *)
 let compare_err_data_ (err_data1 : Errlog.err_data) (err_data2 : Errlog.err_data) =
-  Location.compare err_data1.loc err_data2.loc
+  Errlog.compare_err_data err_data1 err_data2
 
 
 type proc_name_ = Procname.t

@@ -100,7 +100,25 @@ type err_data =
   ; extras: Jsonbug_t.extra option (* NOTE: Please consider adding new fields as part of extras *)
   }
 
-let compare_err_data err_data1 err_data2 = Location.compare err_data1.loc err_data2.loc
+let compare_err_data err_data1 err_data2 =
+  let sink_cmp = Location.compare err_data1.loc err_data2.loc in
+  let extra1 = err_data1.extras in
+  let extra2 = err_data2.extras in
+  match (extra1, extra2) with
+  | Some e1, Some e2 -> (
+      let src_loc1 = e1.bug_src_loc in
+      let src_loc2 = e2.bug_src_loc in
+      match (src_loc1, src_loc2) with
+      | Some l1, Some l2 ->
+          let location1 = Location.{line= l1.lnum; col= l1.cnum; file= SourceFile.create l1.file} in
+          let location2 = Location.{line= l2.lnum; col= l2.cnum; file= SourceFile.create l2.file} in
+          let src_cmp = Location.compare location1 location2 in
+          if equal_int src_cmp 0 then sink_cmp else src_cmp
+      | _, _ ->
+          sink_cmp )
+  | _, _ ->
+      sink_cmp
+
 
 module ErrDataSet = (* set err_data with no repeated loc *)
 Caml.Set.Make (struct

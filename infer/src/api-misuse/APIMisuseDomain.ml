@@ -524,6 +524,19 @@ module Cond = struct
         false
 
 
+  let extract_user_input cond =
+    let user_input_v =
+      match cond with
+      | Overflow cond ->
+          cond.user_input
+      | Format cond ->
+          cond.user_input
+      | _ ->
+          UserInput.bottom
+    in
+    match user_input_v with Set s -> s | _ -> UserInput.Set.empty
+
+
   let subst {Subst.subst_powloc; subst_int_overflow; subst_user_input; subst_traces} mem = function
     | UnInit cond -> (
       match cond.absloc with
