@@ -250,13 +250,11 @@ module TransferFunctions = struct
             let model_env = {Models.pname; node; node_hash; bo_mem_opt; location} in
             exec model_env ~ret mem
         | None -> (
-          match
-            (callee_pname, Tenv.get_summary_formals tenv ~get_summary ~get_formals callee_pname)
-          with
-          | callee_pname, `Found ((Some {mem= exit_mem}, _), callee_formals) ->
+          match (callee_pname, get_summary callee_pname, get_formals callee_pname) with
+          | callee_pname, Some (Some {mem= exit_mem}, _), Some callee_formals ->
               instantiate_mem ret callee_formals callee_pname params location bo_mem_opt mem
                 exit_mem
-          | _, _ ->
+          | _, _, _ ->
               L.d_printfln_escaped "/!\\ Unknown call to %a" Procname.pp callee_pname ;
               mem ) )
     | _ ->
@@ -400,7 +398,7 @@ let checker ({InterproceduralAnalysis.proc_desc; analyze_dependency} as analysis
   let cfg = CFG.from_pdesc proc_desc in
   let get_summary proc_name = analyze_dependency proc_name >>| snd in
   let get_formals callee_pname =
-    AnalysisCallbacks.get_proc_desc callee_pname >>| Procdesc.get_pvar_formals
+    AnalysisCallbacks.proc_resolve_attributes callee_pname >>| ProcAttributes.get_pvar_formals
   in
   let analysis_data = {interproc= analysis_data; get_summary; get_formals} in
   let initial = initial_state analysis_data (CFG.start_node cfg) in
