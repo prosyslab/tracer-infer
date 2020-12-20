@@ -23,7 +23,8 @@ type analysis_data =
   { interproc: BufferOverrunAnalysisSummary.t InterproceduralAnalysis.t
   ; get_summary: BufferOverrunAnalysisSummary.get_summary
   ; get_formals: BoUtils.get_formals
-  ; oenv: OndemandEnv.t }
+  ; oenv: OndemandEnv.t
+  ; all_proc: ProcAttributes.t list }
 
 module CFG = ProcCfg.NormalOneInstrPerNode
 
@@ -73,14 +74,14 @@ module TransferFunctions = struct
       ({Dom.eval_locpath} as eval_sym_trace) mem location =
     let formal_locs =
       List.fold callee_formals ~init:LocSet.empty ~f:(fun acc (formal, _) ->
-          LocSet.add (Loc.of_pvar formal) acc )
+          LocSet.add (Loc.of_pvar formal) acc)
     in
     let copy_reachable_locs_from locs mem =
       let copy loc acc =
         Option.value_map (Dom.Mem.find_opt loc callee_exit_mem) ~default:acc ~f:(fun v ->
             let locs = PowLoc.subst_loc loc eval_locpath in
             let v = Dom.Val.subst v eval_sym_trace location in
-            PowLoc.fold (fun loc acc -> Dom.Mem.add_heap loc v acc) locs acc )
+            PowLoc.fold (fun loc acc -> Dom.Mem.add_heap loc v acc) locs acc)
       in
       let reachable_locs = Dom.Mem.get_reachable_locs_from callee_formals locs callee_exit_mem in
       LocSet.fold copy (LocSet.diff reachable_locs formal_locs) mem
@@ -95,7 +96,7 @@ module TransferFunctions = struct
                   Some loc
               | _ ->
                   None
-            with Not_found_s _ | Caml.Not_found -> None )
+            with Not_found_s _ | Caml.Not_found -> None)
       in
       match Dom.Mem.find_ret_alias callee_exit_mem with
       | Bottom ->
@@ -157,7 +158,7 @@ module TransferFunctions = struct
   let is_java_enum_values tenv callee_pname =
     Option.exists (Procname.get_class_type_name callee_pname) ~f:(fun callee_class_name ->
         PatternMatch.Java.is_enum tenv callee_class_name
-        && String.equal (Procname.get_method callee_pname) "values" )
+        && String.equal (Procname.get_method callee_pname) "values")
 
 
   let assign_java_enum_values get_summary id ~caller_pname ~callee_pname mem =
@@ -167,7 +168,7 @@ module TransferFunctions = struct
       IOption.exists2 caller_class_name callee_class_name
         ~f:(fun caller_class_name callee_class_name ->
           Procname.is_java_class_initializer caller_pname
-          && Typ.equal_name caller_class_name callee_class_name )
+          && Typ.equal_name caller_class_name callee_class_name)
     in
     match callee_class_name with
     | Some (JavaClass class_name as typename) ->
@@ -190,7 +191,7 @@ module TransferFunctions = struct
             else
               let arr_locs = Dom.Val.get_all_locs v in
               let arr_v = Dom.Mem.find_set arr_locs clinit_mem in
-              Dom.Mem.add_heap_set arr_locs arr_v mem )
+              Dom.Mem.add_heap_set arr_locs arr_v mem)
     | _ ->
         assert false
 
@@ -200,12 +201,12 @@ module TransferFunctions = struct
     let is_known_java_static_field fn =
       let fieldname = Fieldname.to_string fn in
       String.Set.exists known_java_static_fields ~f:(fun suffix ->
-          String.is_suffix fieldname ~suffix )
+          String.is_suffix fieldname ~suffix)
     in
     let copy_reachable_locs_from loc ~from_mem ~to_mem =
       let copy loc acc =
         Option.value_map (Dom.Mem.find_opt loc from_mem) ~default:acc ~f:(fun v ->
-            Dom.Mem.add_heap loc v acc )
+            Dom.Mem.add_heap loc v acc)
       in
       let reachable_locs = Dom.Mem.get_reachable_locs_from [] (LocSet.singleton loc) from_mem in
       LocSet.fold copy reachable_locs to_mem
@@ -216,7 +217,7 @@ module TransferFunctions = struct
           let copy_from_class_init () =
             Option.value_map (get_summary clinit_pname) ~default:mem ~f:(fun clinit_mem ->
                 let field_loc = Loc.append_field ~typ:field_typ (Loc.of_pvar pvar) fn in
-                copy_reachable_locs_from field_loc ~from_mem:clinit_mem ~to_mem:mem )
+                copy_reachable_locs_from field_loc ~from_mem:clinit_mem ~to_mem:mem)
           in
           match field_typ.Typ.desc with
           | Typ.Tptr ({desc= Tstruct _}, _) when is_known_java_static_field fn ->
@@ -226,7 +227,7 @@ module TransferFunctions = struct
           | Typ.Tptr ({desc= Tarray _}, _) ->
               copy_from_class_init ()
           | _ ->
-              mem )
+              mem)
 
 
   let java_store_linked_list_next locs v mem =
@@ -234,7 +235,7 @@ module TransferFunctions = struct
     |> Option.value_map ~default:mem ~f:(fun loc ->
            let linked_list_index = Loc.append_field loc BufferOverrunField.java_linked_list_index in
            let v = Dom.Mem.find linked_list_index mem |> Dom.Val.plus_a Dom.Val.Itv.one in
-           Dom.Mem.add_heap linked_list_index v mem )
+           Dom.Mem.add_heap linked_list_index v mem)
 
 
   let modeled_load_of_empty_collection_opt =
@@ -283,7 +284,7 @@ module TransferFunctions = struct
     let mem = Dom.Mem.add_stack_loc (Loc.of_id id) mem in
     let fun_arg_list =
       List.map params ~f:(fun (exp, typ) ->
-          ProcnameDispatcher.Call.FuncArg.{exp; typ; arg_payload= ()} )
+          ProcnameDispatcher.Call.FuncArg.{exp; typ; arg_payload= ()})
     in
     match Models.Call.dispatch tenv callee_pname fun_arg_list with
     | Some {Models.exec} ->
@@ -316,8 +317,8 @@ module TransferFunctions = struct
 
   let exec_instr : Dom.Mem.t -> analysis_data -> CFG.Node.t -> Sil.instr -> Dom.Mem.t =
    fun mem
-       ({interproc= {proc_desc; tenv}; get_summary; oenv= {integer_type_widths}} as analysis_data)
-       node instr ->
+       ( {interproc= {proc_desc; tenv}; get_summary; oenv= {integer_type_widths}; all_proc} as
+       analysis_data ) node instr ->
     match instr with
     | Load {id} when Ident.is_none id ->
         mem
@@ -330,7 +331,7 @@ module TransferFunctions = struct
         load_global_constant get_summary (id, typ) pvar location mem
           ~find_from_initializer:(fun callee_mem ->
             let locs = Dom.Mem.find (Loc.of_pvar pvar) callee_mem |> Dom.Val.get_all_locs in
-            Dom.Mem.find_set locs callee_mem )
+            Dom.Mem.find_set locs callee_mem)
     | Load {id; e= exp; typ; loc= location} -> (
         let model_env =
           let pname = Procdesc.get_proc_name proc_desc in
@@ -411,7 +412,12 @@ module TransferFunctions = struct
           ~callee_pname mem
     | Call (ret, Const (Cfun callee_pname), params, location, _) ->
         call analysis_data node location ret callee_pname params mem
-    | Call (ret, fun_exp, params, location, _) -> (
+    | Call (((_, ret_typ) as ret), fun_exp, params, location, _) -> (
+        (* force to analyze all candidate functions for APIMisuse checker *)
+        BufferOverrunUtils.get_func_candidates proc_desc all_proc ret_typ params
+        |> List.iter ~f:(fun att ->
+               call analysis_data node location ret (ProcAttributes.get_proc_name att) params mem
+               |> ignore) ;
         let func_ptrs = Sem.eval integer_type_widths fun_exp mem |> Dom.Val.get_func_ptrs in
         match FuncPtr.Set.is_singleton_or_more func_ptrs with
         | Singleton (Closure {name= callee_pname}) ->
@@ -465,7 +471,8 @@ let compute_invariant_map :
     in
     let integer_type_widths = Exe_env.get_integer_type_widths exe_env proc_name in
     let oenv = OndemandEnv.mk proc_desc tenv integer_type_widths in
-    {interproc; get_summary; get_formals; oenv}
+    let all_proc = ProcAttributes.get_all () in
+    {interproc; get_summary; get_formals; oenv; all_proc}
   in
   let initial = Init.initial_state analysis_data (CFG.start_node cfg) in
   Analyzer.exec_pdesc ~do_narrowing:true ~initial analysis_data proc_desc

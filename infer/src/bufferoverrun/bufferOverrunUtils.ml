@@ -36,7 +36,7 @@ module Exec = struct
   let load_locs ~represents_multiple_values ~modeled_range id typ locs mem =
     let set_modeled_range v =
       Option.value_map modeled_range ~default:v ~f:(fun modeled_range ->
-          Dom.Val.set_modeled_range modeled_range v )
+          Dom.Val.set_modeled_range modeled_range v)
     in
     let v = Dom.Mem.find_set ~typ locs mem |> set_modeled_range in
     let mem = Dom.Mem.add_stack (Loc.of_id id) v mem in
@@ -116,7 +116,7 @@ module Exec = struct
             let length =
               Option.value_map dyn_length ~default:length ~f:(fun dyn_length ->
                   let i = Dom.Val.get_itv (Sem.eval integer_type_widths dyn_length mem) in
-                  Itv.plus i length )
+                  Itv.plus i length)
             in
             let stride = Option.map stride ~f:IntLit.to_int_exn in
             let allocsite =
@@ -173,7 +173,7 @@ module Exec = struct
     let init_i = Char.to_int init_char in
     String.fold s ~init:(init_i, init_i) ~f:(fun (min_acc, max_acc) c ->
         let i = Char.to_int c in
-        (min min_acc i, max max_acc i) )
+        (min min_acc i, max max_acc i))
 
 
   let decl_string {pname; node_hash; location; integer_type_widths} ~do_alloc locs s mem =
@@ -350,7 +350,7 @@ module ReplaceCallee = struct
           match
             List.for_all2 param_ref_typs formal_typs ~f:(fun param_ref_typ formal_typ ->
                 Typ.equal_ignore_quals formal_typ param_ref_typ
-                || Typ.is_ptr_to_ignore_quals formal_typ ~ptr:param_ref_typ )
+                || Typ.is_ptr_to_ignore_quals formal_typ ~ptr:param_ref_typ)
           with
           | List.Or_unequal_lengths.Ok b ->
               b
@@ -402,7 +402,7 @@ module ReplaceCallee = struct
                 None
           in
           CacheForMakeShared.add pname result ;
-          result )
+          result)
 
 
   let replace_make_shared tenv get_formals pname params =
@@ -418,3 +418,18 @@ module ReplaceCallee = struct
 end
 
 let clear_cache () = ReplaceCallee.CacheForMakeShared.clear ()
+
+let equal_param_types params1 params2 =
+  match List.for_all2 ~f:(fun (_, typ1) (_, typ2) -> Typ.equal typ1 typ2) params1 params2 with
+  | List.Or_unequal_lengths.Ok b ->
+      b
+  | List.Or_unequal_lengths.Unequal_lengths ->
+      false
+
+
+let get_func_candidates proc_desc all_proc ret_typ params =
+  let current = Procdesc.get_proc_name proc_desc in
+  List.filter all_proc ~f:(fun att ->
+      Procname.equal current (ProcAttributes.get_proc_name att) |> not
+      && Typ.equal ret_typ (ProcAttributes.get_ret_type att)
+      && equal_param_types params (ProcAttributes.get_formals att))

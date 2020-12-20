@@ -78,7 +78,11 @@ val get_loc : t -> Location.t
 
 val get_proc_name : t -> Procname.t
 
+val get_ret_type : t -> Typ.t
+
 val get_pvar_formals : t -> (Pvar.t * Typ.t) list
 (** Return pvar and type of formal parameters *)
 
 module SQLite : SqliteUtils.Data with type t = t
+
+val get_all : unit -> t list

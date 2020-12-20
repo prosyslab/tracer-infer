@@ -121,3 +121,6 @@ module ReplaceCallee : sig
 end
 
 val clear_cache : unit -> unit
+
+val get_func_candidates :
+  Procdesc.t -> ProcAttributes.t list -> Typ.t -> (Exp.t * Typ.t) list -> ProcAttributes.t list

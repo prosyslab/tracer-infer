@@ -29,7 +29,8 @@ type analysis_data =
   ; get_summary:
          Procname.t
       -> (APIMisuseDomain.Summary.t option * BufferOverrunAnalysisSummary.t option) option
-  ; get_formals: Procname.t -> (Pvar.t * Typ.t) list option }
+  ; get_formals: Procname.t -> (Pvar.t * Typ.t) list option
+  ; all_proc: ProcAttributes.t list }
 
 let make_subst_traces p v location mem subst_traces s =
   let sym_absloc = Allocsite.make_symbol p |> Loc.of_allocsite in
@@ -210,12 +211,21 @@ module TransferFunctions = struct
 
 
   let exec_instr : Domain.t -> analysis_data -> CFG.Node.t -> Sil.instr -> Domain.t =
-   fun mem {interproc= {proc_desc; tenv} as interproc; get_summary; get_formals} node instr ->
+   fun mem {interproc= {proc_desc; tenv} as interproc; get_summary; get_formals; all_proc} node
+       instr ->
     let bo_inv_map =
       BufferOverrunAnalysis.cached_compute_invariant_map
         (InterproceduralAnalysis.bind_payload interproc ~f:snd)
     in
     let bo_mem_opt = BufferOverrunAnalysis.extract_state (CFG.Node.id node) bo_inv_map in
+    let user_call ret callee_pname params location =
+      match (callee_pname, get_summary callee_pname, get_formals callee_pname) with
+      | callee_pname, Some (Some {mem= exit_mem}, _), Some callee_formals ->
+          instantiate_mem ret callee_formals callee_pname params location bo_mem_opt mem exit_mem
+      | _, _, _ ->
+          L.d_printfln_escaped "/!\\ Unknown call to %a" Procname.pp callee_pname ;
+          mem
+    in
     match instr with
     | Load {id; e; typ} ->
         (* id is a pure variable. id itself is a valid loc *)
@@ -238,7 +248,7 @@ module TransferFunctions = struct
         let locs1 = Sem.eval_locs e1 bo_mem_opt mem in
         let v = Sem.eval e2 (CFG.Node.loc node) mem in
         Dom.PowLocWithIdx.fold (fun l m -> Dom.Mem.add l v m) locs1 mem
-    | Call (((_, _) as ret), Const (Cfun callee_pname), params, location, _) -> (
+    | Call (ret, Const (Cfun callee_pname), params, location, _) -> (
         let fun_arg_list =
           List.map params ~f:(fun (exp, typ) ->
               ProcnameDispatcher.Call.FuncArg.{exp; typ; arg_payload= ()})
@@ -249,14 +259,20 @@ module TransferFunctions = struct
             let node_hash = CFG.Node.hash node in
             let model_env = {Models.pname; node; node_hash; bo_mem_opt; location} in
             exec model_env ~ret mem
-        | None -> (
-          match (callee_pname, get_summary callee_pname, get_formals callee_pname) with
-          | callee_pname, Some (Some {mem= exit_mem}, _), Some callee_formals ->
-              instantiate_mem ret callee_formals callee_pname params location bo_mem_opt mem
-                exit_mem
-          | _, _, _ ->
-              L.d_printfln_escaped "/!\\ Unknown call to %a" Procname.pp callee_pname ;
-              mem ) )
+        | None ->
+            user_call ret callee_pname params location )
+    | Call (((_, ret_typ) as ret), _, params, location, _) ->
+        let candidates = BufferOverrunUtils.get_func_candidates proc_desc all_proc ret_typ params in
+        List.iter
+          ~f:(fun att ->
+            L.d_printfln_escaped "candidate functions: %a\n" Procname.pp
+              (ProcAttributes.get_proc_name att))
+          candidates ;
+        List.fold_left candidates
+          ~f:(fun mem att ->
+            let callee_pname = ProcAttributes.get_proc_name att in
+            user_call ret callee_pname params location |> APIMisuseDomain.Mem.join mem)
+          ~init:mem
     | _ ->
         mem
 
@@ -266,8 +282,18 @@ end
 
 module Analyzer = AbstractInterpreter.MakeRPO (TransferFunctions)
 
-let check_instr {interproc= {InterproceduralAnalysis.tenv; proc_desc}; get_summary; get_formals}
+let check_instr
+    {interproc= {InterproceduralAnalysis.tenv; proc_desc}; get_summary; get_formals; all_proc}
     bo_mem_opt mem node instr condset =
+  let user_call callee_pname params location =
+    match (get_summary callee_pname, get_formals callee_pname) with
+    | Some (Some api_summary, Some _), Some callee_formals ->
+        let eval_sym = make_subst callee_formals params location bo_mem_opt mem Dom.Subst.empty in
+        L.d_printfln_escaped "Callee summary %a" Dom.Summary.pp api_summary ;
+        Dom.CondSet.subst eval_sym mem api_summary.Dom.Summary.condset |> Dom.CondSet.join condset
+    | _ ->
+        condset
+  in
   match instr with
   | Sil.Load {e; loc} ->
       let locs =
@@ -297,15 +323,15 @@ let check_instr {interproc= {InterproceduralAnalysis.tenv; proc_desc}; get_summa
           let node_hash = CFG.Node.hash node in
           let model_env = {Models.pname; node; node_hash; bo_mem_opt; location} in
           check model_env mem condset
-      | None -> (
-        match (get_summary callee_pname, get_formals callee_pname) with
-        | Some (Some api_summary, Some _), Some callee_formals ->
-            let eval_sym = make_subst callee_formals args location bo_mem_opt mem Dom.Subst.empty in
-            L.d_printfln_escaped "Callee summary %a" Dom.Summary.pp api_summary ;
-            Dom.CondSet.subst eval_sym mem api_summary.Dom.Summary.condset
-            |> Dom.CondSet.join condset
-        | _ ->
-            condset ) )
+      | None ->
+          user_call callee_pname args location )
+  | Sil.Call ((_, ret_typ), _, params, location, _) ->
+      BufferOverrunUtils.get_func_candidates proc_desc all_proc ret_typ params
+      |> List.fold_left
+           ~f:(fun condset att ->
+             let callee_pname = ProcAttributes.get_proc_name att in
+             user_call callee_pname params location |> APIMisuseDomain.CondSet.join condset)
+           ~init:condset
   | _ ->
       condset
 
@@ -420,7 +446,8 @@ let checker ({InterproceduralAnalysis.proc_desc; analyze_dependency} as analysis
   let get_formals callee_pname =
     AnalysisCallbacks.proc_resolve_attributes callee_pname >>| ProcAttributes.get_pvar_formals
   in
-  let analysis_data = {interproc= analysis_data; get_summary; get_formals} in
+  let all_proc = ProcAttributes.get_all () in
+  let analysis_data = {interproc= analysis_data; get_summary; get_formals; all_proc} in
   let initial = initial_state analysis_data (CFG.start_node cfg) in
   let inv_map = Analyzer.exec_pdesc analysis_data ~initial proc_desc in
   compute_summary analysis_data cfg inv_map

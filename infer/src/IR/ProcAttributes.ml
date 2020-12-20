@@ -108,6 +108,8 @@ let get_pvar_formals attributes =
 
 let get_proc_name attributes = attributes.proc_name
 
+let get_ret_type attributes = attributes.ret_type
+
 let get_loc attributes = attributes.loc
 
 let default translation_unit proc_name =
@@ -255,3 +257,12 @@ let pp f
 module SQLite = SqliteUtils.MarshalledDataNOTForComparison (struct
   type nonrec t = t
 end)
+
+let get_all =
+  let load_statement =
+    ResultsDatabase.register_statement "SELECT proc_attributes FROM procedures"
+  in
+  fun () ->
+    ResultsDatabase.with_registered_statement load_statement ~f:(fun db stmt ->
+        SqliteUtils.result_fold_single_column_rows ~finalize:false ~log:"ProcAttributes.get_all"
+          ~init:[] db stmt ~f:(fun lst data -> SQLite.deserialize data :: lst))
