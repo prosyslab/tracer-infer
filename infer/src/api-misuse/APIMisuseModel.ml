@@ -104,7 +104,6 @@ let strdup str =
   let exec {location} ~ret mem =
     let id, _ = ret in
     let v = Sem.eval str location mem in
-    let _ = L.d_printfln_escaped "strdup : %a" Dom.Val.pp v in
     let loc = Dom.LocWithIdx.of_loc (Loc.of_id id) in
     Dom.Mem.add loc v mem
   in

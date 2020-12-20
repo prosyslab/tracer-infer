@@ -95,4 +95,20 @@ module Set = struct
       set Errlog.LTRSet.empty
 end
 
+let subset_match_src src_loc ltr_set =
+  match ltr_set with
+  | Some s ->
+      Some
+        (Errlog.LTRSet.filter
+           (fun trace ->
+             match List.hd trace with
+             | Some input_elem ->
+                 Location.equal src_loc input_elem.lt_loc
+             | None ->
+                 false)
+           s)
+  | None ->
+      None
+
+
 include Trace

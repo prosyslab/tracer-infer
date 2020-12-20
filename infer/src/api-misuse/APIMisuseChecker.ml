@@ -347,7 +347,7 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
           let user_input_set = Dom.Cond.extract_user_input cond in
           Dom.UserInput.Set.iter
             (fun (_, src_loc) ->
-              let src_loc =
+              let src_loc' =
                 Jsonbug_t.
                   { file= SourceFile.to_string src_loc.file
                   ; lnum= src_loc.line
@@ -359,8 +359,9 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
                   { nullsafe_extra= None
                   ; cost_polynomial= None
                   ; cost_degree= None
-                  ; bug_src_loc= Some src_loc }
+                  ; bug_src_loc= Some src_loc' }
               in
+              let ltr_set = Trace.subset_match_src src_loc ltr_set in
               Reporting.log_issue proc_desc err_log ~loc ~ltr_set ~extras APIMisuse
                 IssueType.api_misuse bug_type)
             user_input_set
