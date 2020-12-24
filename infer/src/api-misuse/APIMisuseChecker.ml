@@ -135,8 +135,8 @@ module TransferFunctions = struct
   open AbsLoc
 
   let instantiate_param callee_formals params
-      (bo_mem : GOption.some BoDomain.Mem.t0 AbstractInterpreter.State.t option) callee_exit_mem mem
-      =
+      (bo_mem : GOption.some BoDomain.Mem.t0 AbstractInterpreter.State.t option) location
+      callee_exit_mem mem =
     let m =
       List.fold2 callee_formals params ~init:mem ~f:(fun m (p, _) (e, _) ->
           match (p |> Loc.of_pvar |> Loc.get_path, e) with
@@ -165,6 +165,21 @@ module TransferFunctions = struct
                 (fun l mem -> Domain.add l v mem)
                 (Dom.PowLocWithIdx.join param_var param_powloc)
                 m
+          | Some formal, Exp.Lfield (e_struct, _, _) ->
+              let formal_loc =
+                formal |> Allocsite.make_symbol |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc
+              in
+              let formal_v = Domain.find formal_loc callee_exit_mem in
+              let struct_powloc = Sem.eval e_struct location mem |> Dom.Val.get_powloc in
+              Dom.PowLocWithIdx.fold (fun l mem -> Dom.Mem.add l formal_v mem) struct_powloc m
+          | Some formal, Exp.Var id ->
+              let formal_loc =
+                formal |> Allocsite.make_symbol |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc
+              in
+              let formal_v = Domain.find formal_loc callee_exit_mem in
+              let param_loc = id |> Loc.of_id |> Dom.LocWithIdx.of_loc in
+              let param_powloc = Dom.Mem.find param_loc m |> Dom.Val.get_powloc in
+              Dom.PowLocWithIdx.fold (fun l mem -> Dom.Mem.add l formal_v mem) param_powloc m
           | _, _ ->
               m)
     in
@@ -207,7 +222,7 @@ module TransferFunctions = struct
   let instantiate_mem (ret_id, _) callee_formals callee_pname params location bo_mem mem
       callee_exit_mem =
     instantiate_ret ret_id callee_formals callee_pname params location bo_mem callee_exit_mem mem
-    |> instantiate_param callee_formals params bo_mem callee_exit_mem
+    |> instantiate_param callee_formals params bo_mem location callee_exit_mem
 
 
   let exec_instr : Domain.t -> analysis_data -> CFG.Node.t -> Sil.instr -> Domain.t =
@@ -227,20 +242,36 @@ module TransferFunctions = struct
           mem
     in
     match instr with
-    | Load {id; e; typ} ->
-        (* id is a pure variable. id itself is a valid loc *)
-        let loc = Loc.of_id id |> Dom.LocWithIdx.of_loc in
-        let v =
+    | Load {id; e; typ; loc} -> (
+      (* id is a pure variable. id itself is a valid loc *)
+      match e with
+      | Exp.Lfield (e_struct, _, _) ->
+          let struct_powloc = Sem.eval e_struct loc mem |> Dom.Val.get_powloc in
+          let load_v =
+            Dom.PowLocWithIdx.fold
+              (fun l v -> Dom.Mem.find l mem |> Dom.Val.join v)
+              struct_powloc Dom.Val.bottom
+          in
+          let load_l = Loc.of_id id |> Dom.LocWithIdx.of_loc in
+          let v =
+            Dom.PowLocWithIdx.fold
+              (fun l v -> Dom.Mem.find_on_demand ~typ l mem |> Dom.Val.join v)
+              (Sem.eval_locs e bo_mem_opt mem) Dom.Val.bottom
+          in
+          Dom.Mem.add load_l (Dom.Val.join v load_v) mem
+      | _ ->
+          let id_loc = Loc.of_id id |> Dom.LocWithIdx.of_loc in
+          let v =
+            Dom.PowLocWithIdx.fold
+              (fun l v -> Dom.Mem.find_on_demand ~typ l mem |> Dom.Val.join v)
+              (Sem.eval_locs e bo_mem_opt mem) Dom.Val.bottom
+          in
+          let new_mem = Dom.Mem.add id_loc v mem in
+          let v_powloc = Dom.Val.get_powloc v in
           Dom.PowLocWithIdx.fold
-            (fun l v -> Dom.Mem.find_on_demand ~typ l mem |> Dom.Val.join v)
-            (Sem.eval_locs e bo_mem_opt mem) Dom.Val.bottom
-        in
-        let new_mem = Dom.Mem.add loc v mem in
-        let v_powloc = Dom.Val.get_powloc v in
-        Dom.PowLocWithIdx.fold
-          (fun l m ->
-            match Dom.Mem.find_opt l m with Some _ -> m | None -> Dom.Mem.add l Dom.Val.bottom m)
-          v_powloc new_mem
+            (fun l m ->
+              match Dom.Mem.find_opt l m with Some _ -> m | None -> Dom.Mem.add l Dom.Val.bottom m)
+            v_powloc new_mem )
     | Prune _ ->
         mem
     | Store {e1; e2} ->
