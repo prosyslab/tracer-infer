@@ -162,6 +162,8 @@ module LocWithIdx = struct
         assert false
 
 
+  let append_field fn l = match l with Loc l -> Loc (Loc.append_field l fn) | _ -> l
+
   let pp fmt = function
     | Loc l ->
         AbsLoc.Loc.pp fmt l
@@ -184,6 +186,9 @@ module PowLocWithIdx = struct
 
   let to_pow_loc plocwithind =
     fold (fun l s -> PowLoc.add (LocWithIdx.to_loc l) s) plocwithind PowLoc.bot
+
+
+  let append_field fn set = map (LocWithIdx.append_field fn) set
 end
 
 module IntOverflow = struct

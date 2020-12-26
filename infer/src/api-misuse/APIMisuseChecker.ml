@@ -76,7 +76,9 @@ let rec make_subst formals actuals location bo_mem mem
         let sym_int_overflow = Dom.IntOverflow.make_symbol p in
         let sym_user_input = Dom.UserInput.make_symbol p in
         L.(debug Analysis Quiet) "make subst sym: %a\n" AbsLoc.Loc.pp sym_absloc ;
-        let ({Dom.Val.powloc; int_overflow; user_input; _} as v) = Sem.eval exp location mem in
+        let ({Dom.Val.powloc; int_overflow; user_input; _} as v) =
+          Sem.eval exp location bo_mem mem
+        in
         L.d_printfln_escaped "make subst: %a %a\n" SPath.pp_partial p Dom.Val.pp v ;
         let powloc =
           Dom.PowLocWithIdx.fold
@@ -160,7 +162,7 @@ module TransferFunctions = struct
                     callee_exit_mem m)
                 param_powloc m
             in
-            let param_val = Sem.eval exp location mem in
+            let param_val = Sem.eval exp location bo_mem mem in
             let v = Domain.find deref_formal_loc callee_exit_mem in
             let v = {v with traces= TraceSet.concat param_val.Dom.Val.traces v.Dom.Val.traces} in
             L.d_printfln_escaped "Formal loc: %a" Dom.LocWithIdx.pp deref_formal_loc ;
@@ -232,37 +234,22 @@ module TransferFunctions = struct
           mem
     in
     match instr with
-    | Load {id; e; typ; loc} -> (
-      (* id is a pure variable. id itself is a valid loc *)
-      match e with
-      | Exp.Lfield (e_struct, _, _) ->
-          let struct_powloc = Sem.eval e_struct loc mem |> Dom.Val.get_powloc in
-          let load_v =
-            Dom.PowLocWithIdx.fold
-              (fun l v -> Dom.Mem.find l mem |> Dom.Val.join v)
-              struct_powloc Dom.Val.bottom
-          in
-          let load_l = Loc.of_id id |> Dom.LocWithIdx.of_loc in
-          let v =
-            Dom.PowLocWithIdx.fold
-              (fun l v -> Dom.Mem.find_on_demand ~typ l mem |> Dom.Val.join v)
-              (Sem.eval_locs e bo_mem_opt mem) Dom.Val.bottom
-          in
-          Dom.Mem.add load_l (Dom.Val.join v load_v) mem
-      | _ ->
-          let id_loc = Loc.of_id id |> Dom.LocWithIdx.of_loc in
-          let v =
-            Dom.PowLocWithIdx.fold
-              (fun l v -> Dom.Mem.find_on_demand ~typ l mem |> Dom.Val.join v)
-              (Sem.eval_locs e bo_mem_opt mem) Dom.Val.bottom
-          in
-          Dom.Mem.add id_loc v mem )
+    | Load {id; e; typ; loc} ->
+        (* id is a pure variable. id itself is a valid loc *)
+        let id_loc = Loc.of_id id |> Dom.LocWithIdx.of_loc in
+        let locs = Sem.eval e loc bo_mem_opt mem |> Dom.Val.get_powloc in
+        let v =
+          Dom.PowLocWithIdx.fold
+            (fun l v -> Dom.Mem.find_on_demand ~typ l mem |> Dom.Val.join v)
+            locs Dom.Val.bottom
+        in
+        Dom.Mem.add id_loc v mem
     | Prune _ ->
         mem
     | Store {e1; e2} ->
         (* e1 can be either PVar or LVar. *)
         let locs1 = Sem.eval_locs e1 bo_mem_opt mem in
-        let v = Sem.eval e2 (CFG.Node.loc node) mem in
+        let v = Sem.eval e2 (CFG.Node.loc node) bo_mem_opt mem in
         Dom.PowLocWithIdx.fold (fun l m -> Dom.Mem.add l v m) locs1 mem
     | Call (ret, Const (Cfun callee_pname), params, location, _) -> (
         let fun_arg_list =

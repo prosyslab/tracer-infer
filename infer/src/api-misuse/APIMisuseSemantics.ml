@@ -16,6 +16,18 @@ let bo_eval_locs e bo_mem_opt =
       Dom.PowLocWithIdx.bottom
 
 
+let bo_eval pvar bo_mem_opt mem =
+  match (bo_mem_opt : BoDomain.Mem.t AbstractInterpreter.State.t option) with
+  | Some bo_mem ->
+      let loc = pvar |> AbsLoc.Loc.of_pvar in
+      if BoDomain.Mem.is_stack_loc loc bo_mem.pre then
+        Dom.LocWithIdx.of_loc loc |> Fun.flip Mem.find mem
+      else Dom.LocWithIdx.of_loc loc |> Dom.PowLocWithIdx.singleton |> Dom.Val.of_pow_loc
+  | None ->
+      pvar |> AbsLoc.Loc.of_pvar |> Dom.LocWithIdx.of_loc |> Dom.PowLocWithIdx.singleton
+      |> Dom.Val.of_pow_loc
+
+
 let rec eval_locs exp bo_mem mem =
   match exp with
   | Exp.Var id ->
@@ -32,30 +44,33 @@ let rec eval_locs exp bo_mem mem =
       Dom.PowLocWithIdx.empty
 
 
-and eval exp loc mem =
+and eval exp loc bo_mem mem =
   match exp with
   | Exp.Var id ->
       Var.of_id id |> AbsLoc.Loc.of_var |> Dom.LocWithIdx.of_loc |> Fun.flip Mem.find mem
   | Exp.Lvar pvar ->
-      pvar |> AbsLoc.Loc.of_pvar |> Dom.LocWithIdx.of_loc |> Fun.flip Mem.find mem
+      bo_eval pvar bo_mem mem
   | Exp.Const _ ->
       Dom.Init.Init |> Val.of_init
   | Exp.BinOp (bop, e1, e2) ->
-      eval_binop bop e1 e2 loc mem
+      eval_binop bop e1 e2 loc bo_mem mem
   | Exp.UnOp (uop, e, _) ->
-      eval_unop uop e loc mem
+      eval_unop uop e loc bo_mem mem
   | Exp.Cast (_, e1) ->
-      eval e1 loc mem
+      eval e1 loc bo_mem mem
   | Exp.Lindex (e1, _) ->
-      eval e1 loc mem
+      eval e1 loc bo_mem mem
+  | Exp.Lfield (e, fn, _) ->
+      eval e loc bo_mem mem |> Dom.Val.get_powloc |> Dom.PowLocWithIdx.append_field fn
+      |> Dom.Val.of_pow_loc
   | _ ->
       (* TODO *)
       Val.bottom
 
 
-and eval_binop bop e1 e2 loc mem =
-  let v1 = eval e1 loc mem in
-  let v2 = eval e2 loc mem in
+and eval_binop bop e1 e2 loc bo_mem mem =
+  let v1 = eval e1 loc bo_mem mem in
+  let v2 = eval e2 loc bo_mem mem in
   let traces =
     if TraceSet.is_empty v1.Val.traces |> not then
       TraceSet.append (Trace.make_binop loc) v1.Val.traces
@@ -85,4 +100,4 @@ and eval_binop bop e1 e2 loc mem =
       ; traces }
 
 
-and eval_unop _ e loc mem = eval e loc mem
+and eval_unop _ e loc bo_mem mem = eval e loc bo_mem mem

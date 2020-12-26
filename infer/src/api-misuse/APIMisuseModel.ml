@@ -87,8 +87,8 @@ let malloc size =
     | _ ->
         mem
   in
-  let check {location} mem condset =
-    let v = Sem.eval size location mem in
+  let check {location; bo_mem_opt} mem condset =
+    let v = Sem.eval size location bo_mem_opt mem in
     let traces = Trace.Set.append (Trace.make_malloc location) v.Dom.Val.traces in
     Dom.CondSet.add (Dom.Cond.make_overflow {v with traces} location) condset
   in
@@ -101,9 +101,9 @@ let calloc n size =
 
 
 let strdup str =
-  let exec {location} ~ret mem =
+  let exec {location; bo_mem_opt} ~ret mem =
     let id, _ = ret in
-    let v = Sem.eval str location mem in
+    let v = Sem.eval str location bo_mem_opt mem in
     let loc = Dom.LocWithIdx.of_loc (Loc.of_id id) in
     Dom.Mem.add loc v mem
   in
@@ -111,8 +111,8 @@ let strdup str =
 
 
 let printf str =
-  let check {location} mem condset =
-    let v = Sem.eval str location mem in
+  let check {location; bo_mem_opt} mem condset =
+    let v = Sem.eval str location bo_mem_opt mem in
     let v_powloc = v |> Dom.Val.get_powloc in
     let user_input_val =
       Dom.PowLocWithIdx.fold
@@ -162,8 +162,8 @@ module StdMap = struct
           L.user_warning "Invalid argument of std::map" ;
           mem
     in
-    let check {location} mem condset =
-      let locs = Sem.eval other location mem |> Dom.Val.get_powloc in
+    let check {location; bo_mem_opt} mem condset =
+      let locs = Sem.eval other location bo_mem_opt mem |> Dom.Val.get_powloc in
       Dom.PowLocWithIdx.fold
         (fun l condset ->
           match l with
@@ -198,7 +198,9 @@ module StdMap = struct
             |> Fun.flip BoDomain.Mem.find_set bomem.pre
             |> BoDomain.Val.get_itv |> Dom.Idx.of_itv
           in
-          let idx_str_val = Sem.eval idx location mem |> Dom.Val.get_str |> Dom.Idx.of_str in
+          let idx_str_val =
+            Sem.eval idx location bo_mem_opt mem |> Dom.Val.get_str |> Dom.Idx.of_str
+          in
           let idx_val = Dom.Idx.join idx_itv_val idx_str_val in
           let retloc = fst ret |> Loc.of_id |> Dom.LocWithIdx.of_loc in
           let maploc = eval_maploc map_exp mem in
@@ -230,9 +232,10 @@ module BasicString = struct
     {exec; check= empty_check_fun}
 
 
-  let check_uninit exp mem location condset =
+  let check_uninit exp bo_mem_opt mem location condset =
     let locs =
-      Sem.eval exp location mem |> Dom.Val.get_powloc
+      Sem.eval exp location bo_mem_opt mem
+      |> Dom.Val.get_powloc
       |> Dom.PowLocWithIdx.filter (function Dom.LocWithIdx.Idx (_, _) -> true | _ -> false)
     in
     if Dom.PowLocWithIdx.is_empty locs then condset
@@ -250,20 +253,26 @@ module BasicString = struct
   let assign lv rv =
     let exec {bo_mem_opt; location} ~ret:_ mem =
       let locs = Sem.eval_locs lv bo_mem_opt mem in
-      let v = Sem.eval rv location mem in
+      let v = Sem.eval rv location bo_mem_opt mem in
       Dom.PowLocWithIdx.fold (fun l mem -> Dom.Mem.add l v mem) locs mem
     in
-    let check {location} mem condset = check_uninit rv mem location condset in
+    let check {bo_mem_opt; location} mem condset =
+      check_uninit rv bo_mem_opt mem location condset
+    in
     {exec; check}
 
 
   let copy_constructor _ src =
-    let check {location} mem condset = check_uninit src mem location condset in
+    let check {bo_mem_opt; location} mem condset =
+      check_uninit src bo_mem_opt mem location condset
+    in
     {empty with check}
 
 
   let plus_equal exp =
-    let check {location} mem condset = check_uninit exp mem location condset in
+    let check {bo_mem_opt; location} mem condset =
+      check_uninit exp bo_mem_opt mem location condset
+    in
     {empty with check}
 end
 
