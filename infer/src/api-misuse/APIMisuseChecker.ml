@@ -137,49 +137,43 @@ module TransferFunctions = struct
   let instantiate_param callee_formals params
       (bo_mem : GOption.some BoDomain.Mem.t0 AbstractInterpreter.State.t option) location
       callee_exit_mem mem =
-    let m =
-      List.fold2 callee_formals params ~init:mem ~f:(fun m (p, _) (e, _) ->
-          match (p |> Loc.of_pvar |> Loc.get_path, e) with
-          | Some formal, (*Exp.Lvar pvar*) exp ->
-              let param_powloc =
-                ( match bo_mem with
-                | Some bomem ->
-                    BoSemantics.eval_locs e bomem.pre
-                | _ ->
-                    PowLoc.bot )
-                |> Dom.PowLocWithIdx.of_pow_loc
-              in
-              let deref_formal_loc =
-                formal
-                |> SPath.deref ~deref_kind:SPath.Deref_CPointer
-                |> Allocsite.make_symbol |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc
-              in
-              let m =
-                Dom.PowLocWithIdx.fold
-                  (fun loc m ->
-                    Dom.Mem.fold
-                      (fun k v m ->
-                        if Dom.LocWithIdx.field_of k deref_formal_loc then
-                          Dom.Mem.weak_update (Dom.LocWithIdx.replace_prefix k loc) v m
-                        else m)
-                      callee_exit_mem m)
-                  param_powloc m
-              in
-              let param_val = Sem.eval exp location mem in
-              let v = Domain.find deref_formal_loc callee_exit_mem in
-              let v = {v with traces= TraceSet.concat param_val.Dom.Val.traces v.Dom.Val.traces} in
-              L.d_printfln_escaped "Formal loc: %a" Dom.LocWithIdx.pp deref_formal_loc ;
-              L.d_printfln_escaped "Value: %a" Dom.Val.pp v ;
-              L.d_printfln_escaped "Param Powloc %a" Dom.PowLocWithIdx.pp param_powloc ;
-              let param_var = Dom.Val.get_powloc param_val in
+    List.fold2 callee_formals params ~init:mem ~f:(fun m (p, _) (e, _) ->
+        match (p |> Loc.of_pvar |> Loc.get_path, e) with
+        | Some formal, exp ->
+            let param_powloc =
+              (match bo_mem with Some bomem -> BoSemantics.eval_locs e bomem.pre | _ -> PowLoc.bot)
+              |> Dom.PowLocWithIdx.of_pow_loc
+            in
+            let deref_formal_loc =
+              formal
+              |> SPath.deref ~deref_kind:SPath.Deref_CPointer
+              |> Allocsite.make_symbol |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc
+            in
+            let m =
               Dom.PowLocWithIdx.fold
-                (fun l mem -> Domain.weak_update l v mem)
-                (Dom.PowLocWithIdx.join param_var param_powloc)
-                m
-          | _, _ ->
-              m)
-    in
-    match m with
+                (fun loc m ->
+                  Dom.Mem.fold
+                    (fun k v m ->
+                      if Dom.LocWithIdx.field_of k deref_formal_loc then
+                        Dom.Mem.weak_update (Dom.LocWithIdx.replace_prefix k loc) v m
+                      else m)
+                    callee_exit_mem m)
+                param_powloc m
+            in
+            let param_val = Sem.eval exp location mem in
+            let v = Domain.find deref_formal_loc callee_exit_mem in
+            let v = {v with traces= TraceSet.concat param_val.Dom.Val.traces v.Dom.Val.traces} in
+            L.d_printfln_escaped "Formal loc: %a" Dom.LocWithIdx.pp deref_formal_loc ;
+            L.d_printfln_escaped "Value: %a" Dom.Val.pp v ;
+            L.d_printfln_escaped "Param Powloc %a" Dom.PowLocWithIdx.pp param_powloc ;
+            let param_var = Dom.Val.get_powloc param_val in
+            Dom.PowLocWithIdx.fold
+              (fun l mem -> Domain.weak_update l v mem)
+              (Dom.PowLocWithIdx.join param_var param_powloc)
+              m
+        | _, _ ->
+            m)
+    |> function
     | IStd.List.Or_unequal_lengths.Ok result_mem ->
         result_mem
     | IStd.List.Or_unequal_lengths.Unequal_lengths ->
