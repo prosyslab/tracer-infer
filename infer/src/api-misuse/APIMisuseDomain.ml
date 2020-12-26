@@ -5,6 +5,7 @@ module CFG = ProcCfg.NormalOneInstrPerNode
 module Trace = APIMisuseTrace
 module TraceSet = APIMisuseTrace.Set
 module SPath = Symb.SymbolPath
+module BoField = BufferOverrunField
 
 module Init = struct
   type t = Bot | Init | UnInit | Top [@@deriving compare, equal]
@@ -134,6 +135,23 @@ module LocWithIdx = struct
   let to_loc = function Loc l | Idx (l, _) -> l
 
   let is_symbolic = function Loc l | Idx (l, _) -> Loc.is_symbol l
+
+  (* check if field = loc.f *)
+  let field_of field loc =
+    match (field, loc) with
+    | Loc f, Loc l -> (
+      match f with BoField.Field {prefix} -> Loc.equal prefix l | _ -> false )
+    | _, _ ->
+        false
+
+
+  let replace_prefix k loc =
+    match (k, loc) with
+    | Loc k', Loc loc -> (
+      match k' with BoField.Field f -> Loc (BoField.Field {f with prefix= loc}) | _ -> k )
+    | _, _ ->
+        k
+
 
   let append_idx l i =
     match l with
@@ -447,6 +465,10 @@ module Mem = struct
   let find k m = try find k m with _ -> Val.bottom
 
   let find_set ks m = PowLocWithIdx.fold (fun k v -> find k m |> Val.join v) ks Val.bottom
+
+  let weak_update k v m =
+    let joined_v = find k m |> Val.join v in
+    add k joined_v m
 end
 
 module Cond = struct
