@@ -266,12 +266,7 @@ module TransferFunctions = struct
               (fun l v -> Dom.Mem.find_on_demand ~typ l mem |> Dom.Val.join v)
               (Sem.eval_locs e bo_mem_opt mem) Dom.Val.bottom
           in
-          let new_mem = Dom.Mem.add id_loc v mem in
-          let v_powloc = Dom.Val.get_powloc v in
-          Dom.PowLocWithIdx.fold
-            (fun l m ->
-              match Dom.Mem.find_opt l m with Some _ -> m | None -> Dom.Mem.add l Dom.Val.bottom m)
-            v_powloc new_mem )
+          Dom.Mem.add id_loc v mem )
     | Prune _ ->
         mem
     | Store {e1; e2} ->

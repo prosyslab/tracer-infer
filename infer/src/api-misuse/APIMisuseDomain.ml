@@ -4,6 +4,7 @@ open AbsLoc
 module CFG = ProcCfg.NormalOneInstrPerNode
 module Trace = APIMisuseTrace
 module TraceSet = APIMisuseTrace.Set
+module SPath = Symb.SymbolPath
 
 module Init = struct
   type t = Bot | Init | UnInit | Top [@@deriving compare, equal]
@@ -353,17 +354,24 @@ module Val = struct
           L.d_printfln_escaped "Val.on_demand for %a (%a)" LocWithIdx.pp loc QualifiedCppName.pp
             name ;
           L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
-          let loc = Allocsite.make_symbol p |> Loc.of_allocsite in
-          let powloc = loc |> LocWithIdx.of_loc |> PowLocWithIdx.singleton in
+          let deref_loc =
+            SPath.deref ~deref_kind:Deref_CPointer p |> Allocsite.make_symbol |> Loc.of_allocsite
+          in
+          let powloc = deref_loc |> LocWithIdx.of_loc |> PowLocWithIdx.singleton in
           let int_overflow = IntOverflow.make_symbol p in
           let user_input = UserInput.make_symbol p in
+          let loc = p |> Allocsite.make_symbol |> Loc.of_allocsite in
           let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
           {bottom with powloc; int_overflow; user_input; traces}
       | Some ({Typ.desc= Tptr _} as typ) ->
           L.d_printfln_escaped "Val.on_demand for %a (%s)" LocWithIdx.pp loc (Typ.to_string typ) ;
           L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
-          let loc = Allocsite.make_symbol p |> Loc.of_allocsite in
-          let powloc = loc |> LocWithIdx.of_loc |> PowLocWithIdx.singleton in
+          let deref_loc =
+            SPath.deref ~deref_kind:Deref_CPointer p |> Allocsite.make_symbol |> Loc.of_allocsite
+          in
+          let powloc = deref_loc |> LocWithIdx.of_loc |> PowLocWithIdx.singleton in
+          let loc = p |> Allocsite.make_symbol |> Loc.of_allocsite in
+          L.d_printfln_escaped "Powloc: %a" PowLocWithIdx.pp powloc ;
           let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
           {bottom with powloc; traces}
       | _ ->
