@@ -257,65 +257,53 @@ module UserInput = struct
     let pp fmt (n, l) = F.fprintf fmt "%a @ %a" CFG.Node.pp_id (CFG.Node.id n) Location.pp l
   end
 
-  module Set = PrettyPrintable.MakePPSet (Source)
-
   module PrettyPrintableSymbol = struct
     type t = Symb.SymbolPath.partial [@@deriving compare]
 
     let pp fmt s = F.fprintf fmt "%a" Symb.SymbolPath.pp_partial s
   end
 
-  module SetSymbol = PrettyPrintable.MakePPSet (PrettyPrintableSymbol)
+  module Elem = struct
+    type t = Source of Source.t | Symbol of PrettyPrintableSymbol.t [@@deriving compare]
 
-  type t = Top | Set of Set.t | SetSymbol of SetSymbol.t [@@deriving compare, equal]
+    let pp fmt e =
+      match e with
+      | Source src ->
+          Source.pp fmt src
+      | Symbol sym ->
+          PrettyPrintableSymbol.pp fmt sym
 
-  let bottom = Set Set.empty
 
-  let is_bot = function Set s -> Set.is_empty s | _ -> false
+    let is_source elem = match elem with Source _ -> true | _ -> false
 
-  let is_symbol = function SetSymbol _ -> true | _ -> false
+    let is_symbol elem = match elem with Symbol _ -> true | _ -> false
+  end
 
-  let join x y =
-    match (x, y) with
-    | _, _ when is_bot x ->
-        y
-    | _, _ when is_bot y ->
-        x
-    | Set s1, Set s2 ->
-        Set (Set.union s1 s2)
-    | SetSymbol s1, SetSymbol s2 ->
-        SetSymbol (SetSymbol.union s1 s2)
-    | _, _ ->
-        Top
+  module Set = PrettyPrintable.MakePPSet (Elem)
 
+  type t = Set.t [@@deriving compare, equal]
+
+  let bottom = Set.empty
+
+  let is_bot = Set.is_empty
+
+  let is_symbol = Set.exists (fun e -> Elem.is_symbol e)
+
+  let join x y = Set.union x y
 
   let widen ~prev ~next ~num_iters:_ = join prev next
 
-  let leq ~lhs ~rhs =
-    match (lhs, rhs) with
-    | Set s1, Set s2 ->
-        Set.subset s1 s2
-    | SetSymbol s1, SetSymbol s2 ->
-        SetSymbol.subset s1 s2
-    | _, Top ->
-        true
-    | _, _ ->
-        false
+  let leq ~lhs ~rhs = Set.subset lhs rhs
 
+  let make node loc = Set.singleton (Source (node, loc))
 
-  let make node loc = Set (Set.singleton (node, loc))
+  let is_taint = Set.exists (fun e -> Elem.is_source e)
 
-  let is_taint = function Top -> true | Set x -> not (Set.is_empty x) | SetSymbol _ -> false
+  let make_symbol p = Set.singleton (Symbol p)
 
-  let make_symbol p = SetSymbol (SetSymbol.singleton p)
+  let pp = Set.pp
 
-  let pp fmt = function
-    | Top ->
-        F.fprintf fmt "%s" "Top"
-    | Set s ->
-        Set.pp fmt s
-    | SetSymbol ss ->
-        SetSymbol.pp fmt ss
+  let make_elem e = Set.singleton e
 end
 
 module Subst = struct
@@ -569,7 +557,7 @@ module Cond = struct
       | _ ->
           UserInput.bottom
     in
-    match user_input_v with Set s -> s | _ -> UserInput.Set.empty
+    user_input_v
 
 
   let subst {Subst.subst_powloc; subst_int_overflow; subst_user_input; subst_traces} mem = function

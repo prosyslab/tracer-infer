@@ -69,7 +69,7 @@ let make_subst_traces p v location mem subst_traces s =
 let rec make_subst formals actuals location bo_mem mem
     ({Dom.Subst.subst_powloc; subst_int_overflow; subst_user_input; subst_traces} as subst) =
   match (formals, actuals) with
-  | (pvar, _) :: t1, (exp, _) :: t2 -> (
+  | (pvar, _) :: t1, (exp, typ_exp) :: t2 -> (
     match pvar |> Loc.of_pvar |> Loc.get_path with
     | Some p ->
         let sym_absloc = Allocsite.make_symbol p |> Loc.of_allocsite in
@@ -96,10 +96,10 @@ let rec make_subst formals actuals location bo_mem mem
               else subst_int_overflow s)
         ; subst_user_input=
             (fun s ->
-              match s with
-              | SetSymbol ss ->
-                  Dom.UserInput.SetSymbol.fold
-                    (fun sym s ->
+              Dom.UserInput.Set.fold
+                (fun elem s ->
+                  match elem with
+                  | Symbol sym ->
                       let setsymbol_sym = Dom.UserInput.make_symbol sym in
                       let subst_val =
                         match sym with
@@ -112,14 +112,34 @@ let rec make_subst formals actuals location bo_mem mem
                             if Dom.UserInput.equal (Dom.UserInput.make_symbol p) sym_user_input then
                               Dom.Val.get_user_input deref_subst_val
                             else subst_user_input setsymbol_sym
+                        | BufferOverrunField.Field {prefix; fn; _} -> (
+                            if Dom.UserInput.equal setsymbol_sym sym_user_input then user_input
+                            else
+                              match prefix with
+                              | BufferOverrunField.Prim (SPath.Deref (_, prefix_deref)) ->
+                                  let prefix_sym = Dom.UserInput.make_symbol prefix_deref in
+                                  if Dom.UserInput.equal prefix_sym sym_user_input then
+                                    let lfield_exp = Exp.Lfield (exp, fn, typ_exp) in
+                                    let lfield_exp_powloc = Sem.eval_locs lfield_exp bo_mem mem in
+                                    let result =
+                                      Dom.PowLocWithIdx.fold
+                                        (fun l ui ->
+                                          Dom.Mem.find l mem |> Dom.Val.get_user_input
+                                          |> Dom.UserInput.join ui)
+                                        lfield_exp_powloc Dom.UserInput.bottom
+                                    in
+                                    result
+                                  else subst_user_input setsymbol_sym
+                              | _ ->
+                                  subst_user_input setsymbol_sym )
                         | _ ->
                             if Dom.UserInput.equal setsymbol_sym sym_user_input then user_input
                             else subst_user_input setsymbol_sym
                       in
-                      Dom.UserInput.join subst_val s)
-                    ss Dom.UserInput.bottom
-              | _ ->
-                  subst_user_input s)
+                      Dom.UserInput.join subst_val s
+                  | _ ->
+                      Dom.UserInput.make_elem elem |> Dom.UserInput.join s)
+                s Dom.UserInput.bottom)
         ; subst_traces= make_subst_traces p v location mem subst_traces }
         |> make_subst t1 t2 location bo_mem mem
     | _ ->
@@ -169,10 +189,12 @@ module TransferFunctions = struct
             L.d_printfln_escaped "Value: %a" Dom.Val.pp v ;
             L.d_printfln_escaped "Param Powloc %a" Dom.PowLocWithIdx.pp param_powloc ;
             let param_var = Dom.Val.get_powloc param_val in
-            Dom.PowLocWithIdx.fold
-              (fun l mem -> Domain.weak_update l v mem)
-              (Dom.PowLocWithIdx.join param_var param_powloc)
-              m
+            let joined_var = Dom.PowLocWithIdx.join param_var param_powloc in
+            let updated_mem =
+              Dom.PowLocWithIdx.fold (fun l mem -> Domain.weak_update l v mem) joined_var m
+            in
+            (* TODO : field of param update *)
+            updated_mem
         | _, _ ->
             m)
     |> function
@@ -184,8 +206,8 @@ module TransferFunctions = struct
 
   let instantiate_ret ret_id callee_formals callee_pname params location bo_mem callee_exit_mem mem
       =
-    let ret_var = ret_id |> Loc.of_id |> Dom.LocWithIdx.of_loc in
     let subst = make_subst callee_formals params location bo_mem mem Dom.Subst.empty in
+    let ret_var = ret_id |> Loc.of_id |> Dom.LocWithIdx.of_loc in
     let ret_val =
       Domain.find
         (Loc.of_pvar (Pvar.get_ret_pvar callee_pname) |> Dom.LocWithIdx.of_loc)
@@ -202,13 +224,24 @@ module TransferFunctions = struct
             (fun l m -> Dom.Mem.join m (add_val_rec l m (present_depth + 1)))
             add_val_powloc present_mem
         in
-        Domain.add var add_val new_mem
+        Domain.weak_update var add_val new_mem
     in
     let ret_val_powloc = Dom.Val.get_powloc ret_val in
     let new_mem =
-      Dom.PowLocWithIdx.fold (fun l m -> Dom.Mem.join m (add_val_rec l m 0)) ret_val_powloc mem
+      let field_update_mem =
+        Dom.Mem.fold
+          (fun l _ m ->
+            let l_is_field =
+              Dom.PowLocWithIdx.exists (fun ret_l -> Dom.LocWithIdx.field_of l ret_l) ret_val_powloc
+            in
+            if l_is_field then add_val_rec l m 0 else m)
+          callee_exit_mem mem
+      in
+      Dom.PowLocWithIdx.fold
+        (fun l m -> Dom.Mem.join m (add_val_rec l m 0))
+        ret_val_powloc field_update_mem
     in
-    Domain.add ret_var ret_val new_mem
+    Domain.weak_update ret_var ret_val new_mem
 
 
   let instantiate_mem (ret_id, _) callee_formals callee_pname params location bo_mem mem
@@ -375,24 +408,28 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
         let report_src_sink_pair cond ~ltr_set (bug_type : string) =
           let user_input_set = Dom.Cond.extract_user_input cond in
           Dom.UserInput.Set.iter
-            (fun (_, src_loc) ->
-              let src_loc' =
-                Jsonbug_t.
-                  { file= SourceFile.to_string src_loc.file
-                  ; lnum= src_loc.line
-                  ; cnum= src_loc.col
-                  ; enum= 0 }
-              in
-              let extras =
-                Jsonbug_t.
-                  { nullsafe_extra= None
-                  ; cost_polynomial= None
-                  ; cost_degree= None
-                  ; bug_src_loc= Some src_loc' }
-              in
-              let ltr_set = Trace.subset_match_src src_loc ltr_set in
-              Reporting.log_issue proc_desc err_log ~loc ~ltr_set ~extras APIMisuse
-                IssueType.api_misuse bug_type)
+            (fun elem ->
+              match elem with
+              | Source (_, src_loc) ->
+                  let src_loc' =
+                    Jsonbug_t.
+                      { file= SourceFile.to_string src_loc.file
+                      ; lnum= src_loc.line
+                      ; cnum= src_loc.col
+                      ; enum= 0 }
+                  in
+                  let extras =
+                    Jsonbug_t.
+                      { nullsafe_extra= None
+                      ; cost_polynomial= None
+                      ; cost_degree= None
+                      ; bug_src_loc= Some src_loc' }
+                  in
+                  let ltr_set = Trace.subset_match_src src_loc ltr_set in
+                  Reporting.log_issue proc_desc err_log ~loc ~ltr_set ~extras APIMisuse
+                    IssueType.api_misuse bug_type
+              | _ ->
+                  ())
             user_input_set
         in
         match cond with
