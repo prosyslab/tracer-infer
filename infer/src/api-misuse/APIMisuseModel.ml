@@ -116,11 +116,10 @@ let printf str =
     let v_powloc = v |> Dom.Val.get_powloc in
     let user_input_val =
       Dom.PowLocWithIdx.fold
-        (fun loc v -> Dom.Val.join v (Dom.Mem.find loc mem))
+        (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
         v_powloc Dom.Val.bottom
     in
-    let traces = Trace.Set.append (Trace.make_printf location) v.Dom.Val.traces in
-    Dom.CondSet.add (Dom.Cond.make_format {v with traces} user_input_val location) condset
+    Dom.CondSet.add (Dom.Cond.make_format user_input_val location) condset
   in
   {exec= empty_exec_fun; check}
 
@@ -299,6 +298,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"std" &:: "basic_string" < any_typ &+ any_typ &+ any_typ >:: "basic_string" &::.*--> empty
     ; -"std" &:: "basic_string" < any_typ &+...>:: "basic_string" &::.*--> empty
     ; -"fread" <>$ capt_exp $+...$--> fread
+    ; -"fgets" <>$ capt_exp $+...$--> fread
     ; -"malloc" <>$ capt_exp $--> malloc
     ; -"g_malloc" <>$ capt_exp $--> malloc
     ; -"__new_array" <>$ capt_exp $--> malloc
