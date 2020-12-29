@@ -124,11 +124,11 @@ let rec make_subst formals actuals location bo_mem mem
                                     let result =
                                       Dom.PowLocWithIdx.fold
                                         (fun l ui ->
-                                          Dom.Mem.find l mem |> Dom.Val.get_user_input
+                                          Dom.Mem.find_on_demand l mem |> Dom.Val.get_user_input
                                           |> Dom.UserInput.join ui)
                                         lfield_exp_powloc Dom.UserInput.bottom
                                     in
-                                    result
+                                    subst_user_input result
                                   else subst_user_input setsymbol_sym
                               | _ ->
                                   subst_user_input setsymbol_sym )
@@ -283,7 +283,10 @@ module TransferFunctions = struct
         (* e1 can be either PVar or LVar. *)
         let locs1 = Sem.eval_locs e1 bo_mem_opt mem in
         let v = Sem.eval e2 (CFG.Node.loc node) bo_mem_opt mem in
-        Dom.PowLocWithIdx.fold (fun l m -> Dom.Mem.add l v m) locs1 mem
+        let update_func =
+          match e1 with Exp.Lindex (_, _) -> Dom.Mem.weak_update | _ -> Dom.Mem.add
+        in
+        Dom.PowLocWithIdx.fold (fun l m -> update_func l v m) locs1 mem
     | Call (ret, Const (Cfun callee_pname), params, location, _) -> (
         let fun_arg_list =
           List.map params ~f:(fun (exp, typ) ->
