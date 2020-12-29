@@ -474,7 +474,8 @@ let initialize_cmd_args start_node formals mem =
           |> SPath.deref ~deref_kind:SPath.Deref_CPointer
           |> Allocsite.make_symbol |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc
         in
-        let v = Dom.UserInput.make start_node location |> Dom.Val.of_user_input in
+        let traces = [Trace.make_input location] |> TraceSet.singleton in
+        let v = Dom.UserInput.make start_node location |> Dom.Val.of_user_input ~traces in
         Dom.Mem.add deref_formal_loc v mem
     | None ->
         mem )
