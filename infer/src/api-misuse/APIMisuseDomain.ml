@@ -594,9 +594,9 @@ module Cond = struct
         F.fprintf fmt "{absloc: %a, init: %a, loc: %a}" LocWithIdx.pp cond.absloc Init.pp cond.init
           Location.pp cond.loc
     | Overflow cond ->
-        F.fprintf fmt "{loc: %a}" Location.pp cond.loc
+        F.fprintf fmt "{user_input: %a, loc: %a}" UserInput.pp cond.user_input Location.pp cond.loc
     | Format cond ->
-        F.fprintf fmt "{loc: %a}" Location.pp cond.loc
+        F.fprintf fmt "{user_input: %a, loc: %a}" UserInput.pp cond.user_input Location.pp cond.loc
 end
 
 module CondSet = struct

@@ -462,10 +462,36 @@ let compute_summary analysis_data cfg inv_map =
       None
 
 
-let initial_state {interproc} start_node =
+let initialize_cmd_args start_node formals mem =
+  match formals with
+  | Some [(_, _); (argv, _)] -> (
+    match argv |> Loc.of_pvar |> Loc.get_path with
+    | Some formal ->
+        let location = CFG.Node.loc start_node in
+        let deref_formal_loc =
+          formal
+          |> SPath.deref ~deref_kind:SPath.Deref_CPointer
+          |> SPath.deref ~deref_kind:SPath.Deref_CPointer
+          |> Allocsite.make_symbol |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc
+        in
+        let v = Dom.UserInput.make start_node location |> Dom.Val.of_user_input in
+        Dom.Mem.add deref_formal_loc v mem
+    | None ->
+        mem )
+  | _ ->
+      mem
+
+
+let initial_state {interproc= {proc_desc} as interproc; get_formals} start_node =
   let bo_inv_map =
     BufferOverrunAnalysis.cached_compute_invariant_map
       (InterproceduralAnalysis.bind_payload interproc ~f:snd)
+  in
+  let pname = Procdesc.get_proc_name proc_desc in
+  let initial =
+    if Procname.get_method pname |> String.equal "main" then
+      initialize_cmd_args start_node (get_formals pname) APIMisuseDomain.Mem.initial
+    else APIMisuseDomain.Mem.initial
   in
   match BufferOverrunAnalysis.extract_state (CFG.Node.id start_node) bo_inv_map with
   | Some bomem ->
@@ -474,9 +500,9 @@ let initial_state {interproc} start_node =
           let loc = Dom.LocWithIdx.of_loc l in
           BoDomain.Val.get_all_locs v |> Dom.PowLocWithIdx.of_pow_loc |> Dom.Val.of_pow_loc
           |> Fun.flip (Dom.Mem.add loc) mem)
-        bomem.post APIMisuseDomain.Mem.initial
+        bomem.post initial
   | None ->
-      APIMisuseDomain.Mem.initial
+      initial
 
 
 let checker ({InterproceduralAnalysis.proc_desc; analyze_dependency} as analysis_data) =
