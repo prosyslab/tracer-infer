@@ -29,26 +29,22 @@ let empty = {exec= empty_exec_fun; check= empty_check_fun}
 
 let fread buffer =
   let exec {node; bo_mem_opt; location} ~ret:_ mem =
-    match bo_mem_opt with
-    | Some bomem ->
-        let locs = BoSemantics.eval_locs buffer bomem.pre in
-        PowLoc.fold
-          (fun l mem ->
-            let traces = [Trace.make_input location] |> Trace.Set.singleton in
-            let v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
-            let loc = Dom.LocWithIdx.of_loc l in
-            let mem = Dom.Mem.add loc v mem in
-            Dom.Mem.fold
-              (fun l' _ mem ->
-                match l' with
-                | Loc field when Loc.is_field_of ~loc:l ~field_loc:field ->
-                    Dom.Mem.add l' v mem
-                | _ ->
-                    mem)
-              mem mem)
-          locs mem
-    | _ ->
-        mem
+    let locs = Sem.eval_locs buffer bo_mem_opt mem in
+    Dom.PowLocWithIdx.fold
+      (fun loc mem ->
+        let traces = [Trace.make_input location] |> Trace.Set.singleton in
+        let v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
+        let mem = Dom.Mem.add loc v mem in
+        let l = Dom.LocWithIdx.to_loc loc in
+        Dom.Mem.fold
+          (fun l' _ mem ->
+            match l' with
+            | Loc field when Loc.is_field_of ~loc:l ~field_loc:field ->
+                Dom.Mem.add l' v mem
+            | _ ->
+                mem)
+          mem mem)
+      locs mem
   in
   {exec; check= empty_check_fun}
 
@@ -321,6 +317,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"calloc" <>$ capt_exp $+ capt_exp $+...$--> calloc
     ; -"printf" <>$ capt_exp $+...$--> printf
     ; -"sprintf" <>$ capt_exp $+ capt_exp $+...$--> sprintf
+    ; -"vsprintf" <>$ capt_exp $+ capt_exp $+...$--> sprintf
     ; -"vsnprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> vsnprintf
     ; -"_IO_getc" <>$ capt_exp $--> getc
     ; -"fgetc" <>$ capt_exp $--> getc
