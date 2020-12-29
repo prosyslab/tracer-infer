@@ -110,6 +110,20 @@ let strdup str =
   {exec; check= empty_check_fun}
 
 
+let strcpy dst src =
+  let exec {bo_mem_opt} ~ret:_ mem =
+    let src_locs = Sem.eval_locs src bo_mem_opt mem in
+    let src_deref_v =
+      Dom.PowLocWithIdx.fold
+        (fun loc v -> Dom.Mem.find loc mem |> Dom.Val.join v)
+        src_locs Dom.Val.bottom
+    in
+    let dst_locs = Sem.eval_locs dst bo_mem_opt mem in
+    Dom.PowLocWithIdx.fold (fun loc m -> Dom.Mem.add loc src_deref_v m) dst_locs mem
+  in
+  {exec; check= empty_check_fun}
+
+
 let printf str =
   let check {location; bo_mem_opt} mem condset =
     let v = Sem.eval str location bo_mem_opt mem in
@@ -123,6 +137,8 @@ let printf str =
   in
   {exec= empty_exec_fun; check}
 
+
+let sprintf _ str = printf str
 
 let vsnprintf _ _ str = printf str
 
@@ -303,8 +319,10 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"g_malloc" <>$ capt_exp $--> malloc
     ; -"__new_array" <>$ capt_exp $--> malloc
     ; -"calloc" <>$ capt_exp $+ capt_exp $+...$--> calloc
-    ; -"printf" <>$ capt_exp $--> printf
+    ; -"printf" <>$ capt_exp $+...$--> printf
+    ; -"sprintf" <>$ capt_exp $+ capt_exp $+...$--> sprintf
     ; -"vsnprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> vsnprintf
     ; -"_IO_getc" <>$ capt_exp $--> getc
     ; -"fgetc" <>$ capt_exp $--> getc
-    ; -"strdup" <>$ capt_exp $--> strdup ]
+    ; -"strdup" <>$ capt_exp $--> strdup
+    ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy ]
