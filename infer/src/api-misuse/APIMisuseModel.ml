@@ -60,6 +60,20 @@ let getc _ =
   {exec; check= empty_check_fun}
 
 
+let getenv _ =
+  let exec {pname; node; bo_mem_opt; location} ~ret mem =
+    let id, _ = ret in
+    let traces = [Trace.make_input location] |> Trace.Set.singleton in
+    let v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
+    let ret_pvar = Pvar.get_ret_pvar pname in
+    let locs = (Exp.Lvar ret_pvar |> Sem.eval_locs) bo_mem_opt mem in
+    let _ = L.d_printfln_escaped "locs : %a" Dom.PowLocWithIdx.pp locs in
+    let loc = Dom.LocWithIdx.of_loc (Loc.of_id id) in
+    Dom.Mem.add loc v mem
+  in
+  {exec; check= empty_check_fun}
+
+
 let malloc size =
   let exec {bo_mem_opt} ~ret:_ (mem : Sem.Mem.t) =
     match bo_mem_opt with
@@ -320,6 +334,8 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"vsprintf" <>$ capt_exp $+ capt_exp $+...$--> sprintf
     ; -"vsnprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> vsnprintf
     ; -"_IO_getc" <>$ capt_exp $--> getc
+    ; -"getenv" <>$ capt_exp $--> getenv
     ; -"fgetc" <>$ capt_exp $--> getc
     ; -"strdup" <>$ capt_exp $--> strdup
-    ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy ]
+    ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy
+    ; -"memcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy ]
