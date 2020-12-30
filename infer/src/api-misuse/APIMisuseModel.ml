@@ -122,6 +122,20 @@ let strcpy dst src =
   {exec; check= empty_check_fun}
 
 
+let strtok src =
+  let exec {bo_mem_opt} ~ret mem =
+    let src_locs = Sem.eval_locs src bo_mem_opt mem in
+    let src_deref_v =
+      Dom.PowLocWithIdx.fold
+        (fun loc v -> Dom.Mem.find loc mem |> Dom.Val.join v)
+        src_locs Dom.Val.bottom
+    in
+    let retloc = fst ret |> Loc.of_id |> Dom.LocWithIdx.of_loc in
+    Dom.Mem.add retloc src_deref_v mem
+  in
+  {exec; check= empty_check_fun}
+
+
 let printf str =
   let check {location; bo_mem_opt} mem condset =
     let v = Sem.eval str location bo_mem_opt mem in
@@ -139,6 +153,16 @@ let printf str =
 let sprintf _ str = printf str
 
 let vsnprintf _ _ str = printf str
+
+let infer_print exp =
+  let exec {location; bo_mem_opt} ~ret:_ mem =
+    let v = Sem.eval exp location bo_mem_opt mem in
+    L.(debug Analysis Quiet)
+      "__infer_print__(%a) @@ %a: %a\n" Exp.pp exp Location.pp location Dom.Val.pp v ;
+    mem
+  in
+  {exec; check= empty_check_fun}
+
 
 module StdMap = struct
   let allocate_map pname node_hash pvar mem =
@@ -324,6 +348,8 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"_IO_getc" <>$ capt_exp $--> getc
     ; -"getenv" <>$ capt_exp $--> getenv
     ; -"fgetc" <>$ capt_exp $--> getc
+    ; -"strtok" <>$ capt_exp $+...$--> strtok
     ; -"strdup" <>$ capt_exp $--> strdup
     ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy
-    ; -"memcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy ]
+    ; -"memcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy
+    ; -"__infer_print__" <>$ capt_exp $--> infer_print ]

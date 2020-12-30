@@ -277,7 +277,11 @@ module TransferFunctions = struct
       | callee_pname, Some (Some {mem= exit_mem}, _), Some callee_formals ->
           instantiate_mem ret callee_formals callee_pname params location bo_mem_opt mem exit_mem
       | _, _, _ ->
-          L.d_printfln_escaped "/!\\ Unknown call to %a" Procname.pp callee_pname ;
+          let caller_pname = Procdesc.get_proc_name proc_desc in
+          L.d_printfln_escaped "/!\\ Unknown call to %a from %a" Procname.pp callee_pname
+            Procname.pp caller_pname ;
+          L.(debug Analysis Quiet)
+            "Unknown call to: %a from %a\n" Procname.pp callee_pname Procname.pp caller_pname ;
           mem
     in
     match instr with
