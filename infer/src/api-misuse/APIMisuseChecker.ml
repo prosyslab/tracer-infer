@@ -173,7 +173,7 @@ module TransferFunctions = struct
   let instantiate_param callee_formals params
       (bo_mem : GOption.some BoDomain.Mem.t0 AbstractInterpreter.State.t option) location
       callee_exit_mem mem =
-    List.fold2 callee_formals params ~init:mem ~f:(fun m (p, _) (e, _) ->
+    List.fold2 callee_formals params ~init:mem ~f:(fun mem (p, _) (e, _) ->
         match (p |> Loc.of_pvar |> Loc.get_path, e) with
         | Some formal, exp -> (
             let param_powloc =
@@ -185,16 +185,16 @@ module TransferFunctions = struct
               |> SPath.deref ~deref_kind:SPath.Deref_CPointer
               |> Allocsite.make_symbol |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc
             in
-            let m =
+            let mem =
               Dom.PowLocWithIdx.fold
-                (fun loc m ->
+                (fun loc mem ->
                   Dom.Mem.fold
-                    (fun k v m ->
+                    (fun k v mem ->
                       if Dom.LocWithIdx.field_of k deref_formal_loc then
-                        Dom.Mem.weak_update (Dom.LocWithIdx.replace_prefix k loc) v m
-                      else m)
-                    callee_exit_mem m)
-                param_powloc m
+                        Dom.Mem.weak_update (Dom.LocWithIdx.replace_prefix k loc) v mem
+                      else mem)
+                    callee_exit_mem mem)
+                param_powloc mem
             in
             let param_val = Sem.eval exp location bo_mem mem in
             match Domain.find_opt deref_formal_loc callee_exit_mem with
@@ -207,16 +207,13 @@ module TransferFunctions = struct
                 L.d_printfln_escaped "Param Powloc %a" Dom.PowLocWithIdx.pp param_powloc ;
                 let param_var = Dom.Val.get_powloc param_val in
                 let joined_var = Dom.PowLocWithIdx.join param_var param_powloc in
-                let updated_mem =
-                  Dom.PowLocWithIdx.fold (fun l mem -> Domain.weak_update l v mem) joined_var m
-                in
+                Dom.PowLocWithIdx.fold (fun l mem -> Domain.weak_update l v mem) joined_var mem
                 (* TODO : field of param update *)
-                updated_mem
             | None ->
-                (* if parameter is not touched in the callee *)
+                (* if parameter is not touched in the callee, skip *)
                 mem )
         | _, _ ->
-            m)
+            mem)
     |> function
     | IStd.List.Or_unequal_lengths.Ok result_mem ->
         result_mem
