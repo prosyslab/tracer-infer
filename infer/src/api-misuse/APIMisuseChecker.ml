@@ -509,18 +509,20 @@ let initial_state {interproc= {proc_desc} as interproc; get_formals} start_node 
 let should_skip proc_desc =
   let node = CFG.Node.loc (CFG.start_node proc_desc) in
   let pname = Procdesc.get_proc_name proc_desc |> Procname.get_method in
-  RevList.exists ~f:(String.equal (SourceFile.to_rel_path node.file)) Config.skip_files
-  || RevList.exists ~f:(String.equal pname) Config.skip_functions
+  let filename = SourceFile.to_rel_path node.file in
+  List.exists ~f:(String.equal filename) Config.skip_files
+  || List.exists ~f:(String.equal pname) Config.skip_functions
 
 
 let checker ({InterproceduralAnalysis.proc_desc; analyze_dependency} as analysis_data) =
-  BufferOverrunAnalysis.cached_compute_invariant_map
-    (InterproceduralAnalysis.bind_payload analysis_data ~f:snd)
-  |> ignore ;
   let open IOption.Let_syntax in
-  let cfg = CFG.from_pdesc proc_desc in
   if should_skip proc_desc then None
   else
+    let _ =
+      BufferOverrunAnalysis.cached_compute_invariant_map
+        (InterproceduralAnalysis.bind_payload analysis_data ~f:snd)
+    in
+    let cfg = CFG.from_pdesc proc_desc in
     let get_summary proc_name = analyze_dependency proc_name >>| snd in
     let get_formals callee_pname =
       AnalysisCallbacks.proc_resolve_attributes callee_pname >>| ProcAttributes.get_pvar_formals

@@ -555,9 +555,9 @@ val skip_analysis_in_path_skips_compilation : bool
 
 val skip_duplicated_types : bool
 
-val skip_files : string RevList.t
+val skip_files : string list
 
-val skip_functions : string RevList.t
+val skip_functions : string list
 
 val skip_translation_headers : string list
 

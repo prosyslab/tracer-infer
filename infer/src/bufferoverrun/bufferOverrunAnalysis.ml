@@ -501,8 +501,18 @@ let compute_summary : (Pvar.t * Typ.t) list -> CFG.t -> invariant_map -> memory_
       Unreachable
 
 
+let should_skip proc_desc =
+  let node = CFG.Node.loc (CFG.start_node proc_desc) in
+  let pname = Procdesc.get_proc_name proc_desc |> Procname.get_method in
+  let filename = SourceFile.to_rel_path node.file in
+  List.exists ~f:(String.equal filename) Config.skip_files
+  || List.exists ~f:(String.equal pname) Config.skip_functions
+
+
 let analyze_procedure ({InterproceduralAnalysis.proc_desc} as analysis_data) =
-  let inv_map = cached_compute_invariant_map analysis_data in
-  let formals = Procdesc.get_pvar_formals proc_desc in
-  let cfg = CFG.from_pdesc proc_desc in
-  Some (compute_summary formals cfg inv_map)
+  if should_skip proc_desc then None
+  else
+    let inv_map = cached_compute_invariant_map analysis_data in
+    let formals = Procdesc.get_pvar_formals proc_desc in
+    let cfg = CFG.from_pdesc proc_desc in
+    Some (compute_summary formals cfg inv_map)

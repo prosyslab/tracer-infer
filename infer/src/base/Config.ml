@@ -3255,9 +3255,9 @@ and skip_analysis_in_path_skips_compilation = !skip_analysis_in_path_skips_compi
 
 and skip_duplicated_types = !skip_duplicated_types
 
-and skip_files = !skip_files
+and skip_files = RevList.to_list !skip_files
 
-and skip_functions = !skip_functions
+and skip_functions = RevList.to_list !skip_functions
 
 and skip_translation_headers = RevList.to_list !skip_translation_headers
 
