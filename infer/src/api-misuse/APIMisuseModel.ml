@@ -123,15 +123,10 @@ let strcpy dst src =
 
 
 let strtok src =
-  let exec {bo_mem_opt} ~ret mem =
-    let src_locs = Sem.eval_locs src bo_mem_opt mem in
-    let src_deref_v =
-      Dom.PowLocWithIdx.fold
-        (fun loc v -> Dom.Mem.find loc mem |> Dom.Val.join v)
-        src_locs Dom.Val.bottom
-    in
+  let exec {location; bo_mem_opt} ~ret mem =
+    let v = Sem.eval src location bo_mem_opt mem in
     let retloc = fst ret |> Loc.of_id |> Dom.LocWithIdx.of_loc in
-    Dom.Mem.add retloc src_deref_v mem
+    Dom.Mem.add retloc v mem
   in
   {exec; check= empty_check_fun}
 
