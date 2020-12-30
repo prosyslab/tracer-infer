@@ -169,6 +169,20 @@ module LocWithIdx = struct
         AbsLoc.Loc.pp fmt l
     | Idx (l, i) ->
         F.fprintf fmt "%a[%a]" Loc.pp l Idx.pp i
+
+
+  let loc_deref loc =
+    match loc with
+    | Loc l -> (
+      match Loc.get_path l with
+      | Some sym ->
+          sym
+          |> SPath.deref ~deref_kind:SPath.Deref_CPointer
+          |> Allocsite.make_symbol |> Loc.of_allocsite |> of_loc
+      | _ ->
+          loc )
+    | _ ->
+        loc
 end
 
 module PowLocWithIdx = struct

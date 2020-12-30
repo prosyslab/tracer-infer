@@ -66,6 +66,54 @@ let make_subst_traces p v location mem subst_traces s =
   |> subst_traces
 
 
+let user_input_symbol_subst sym sym_user_input exp typ_exp v bo_mem mem subst_user_input =
+  let setsymbol_sym = Dom.UserInput.make_symbol sym in
+  match sym with
+  | BufferOverrunField.Prim (SPath.Deref (_, p)) -> (
+    match p with
+    | BufferOverrunField.Prim (SPath.Deref (_, p2)) ->
+        let deref2_powloc =
+          Dom.Val.get_powloc v |> Dom.PowLocWithIdx.map Dom.LocWithIdx.loc_deref
+        in
+        let deref2_subst_val =
+          Dom.PowLocWithIdx.fold
+            (fun l v -> Dom.Mem.find_on_demand l mem |> Dom.Val.join v)
+            deref2_powloc Dom.Val.bottom
+        in
+        if Dom.UserInput.equal (Dom.UserInput.make_symbol p2) sym_user_input then
+          subst_user_input (Dom.Val.get_user_input deref2_subst_val)
+        else subst_user_input setsymbol_sym
+    | _ ->
+        let deref_subst_val =
+          Dom.PowLocWithIdx.fold
+            (fun l v -> Dom.Mem.find_on_demand l mem |> Dom.Val.join v)
+            (Dom.Val.get_powloc v) Dom.Val.bottom
+        in
+        if Dom.UserInput.equal (Dom.UserInput.make_symbol p) sym_user_input then
+          subst_user_input (Dom.Val.get_user_input deref_subst_val)
+        else subst_user_input setsymbol_sym )
+  | BufferOverrunField.Field {prefix; fn; _} -> (
+    match prefix with
+    | BufferOverrunField.Prim (SPath.Deref (_, prefix_deref)) ->
+        let prefix_sym = Dom.UserInput.make_symbol prefix_deref in
+        if Dom.UserInput.equal prefix_sym sym_user_input then
+          let lfield_exp = Exp.Lfield (exp, fn, typ_exp) in
+          let lfield_exp_powloc = Sem.eval_locs lfield_exp bo_mem mem in
+          let result =
+            Dom.PowLocWithIdx.fold
+              (fun l ui ->
+                Dom.Mem.find_on_demand l mem |> Dom.Val.get_user_input |> Dom.UserInput.join ui)
+              lfield_exp_powloc Dom.UserInput.bottom
+          in
+          subst_user_input result
+        else subst_user_input setsymbol_sym
+    | _ ->
+        subst_user_input setsymbol_sym )
+  | _ ->
+      if Dom.UserInput.equal setsymbol_sym sym_user_input then Dom.Val.get_user_input v
+      else subst_user_input setsymbol_sym
+
+
 let rec make_subst formals actuals location bo_mem mem
     ({Dom.Subst.subst_powloc; subst_int_overflow; subst_user_input; subst_traces} as subst) =
   match (formals, actuals) with
@@ -76,10 +124,10 @@ let rec make_subst formals actuals location bo_mem mem
         let sym_int_overflow = Dom.IntOverflow.make_symbol p in
         let sym_user_input = Dom.UserInput.make_symbol p in
         L.(debug Analysis Quiet) "make subst sym: %a\n" AbsLoc.Loc.pp sym_absloc ;
-        let ({Dom.Val.powloc; int_overflow; user_input; _} as v) =
+        let ({Dom.Val.powloc; int_overflow; user_input; _} as v_exp) =
           Sem.eval exp location bo_mem mem
         in
-        L.d_printfln_escaped "make subst: %a %a\n" SPath.pp_partial p Dom.Val.pp v ;
+        L.d_printfln_escaped "make subst: %a %a\n" SPath.pp_partial p Dom.Val.pp v_exp ;
         let powloc =
           Dom.PowLocWithIdx.fold
             (fun l s -> Dom.LocWithIdx.to_loc l |> Fun.flip AbsLoc.PowLoc.add s)
@@ -98,49 +146,15 @@ let rec make_subst formals actuals location bo_mem mem
             (fun s ->
               Dom.UserInput.Set.fold
                 (fun elem s ->
-                  match elem with
+                  ( match elem with
                   | Symbol sym ->
-                      let setsymbol_sym = Dom.UserInput.make_symbol sym in
-                      let subst_val =
-                        match sym with
-                        | BufferOverrunField.Prim (SPath.Deref (_, p)) ->
-                            let deref_subst_val =
-                              Dom.PowLocWithIdx.fold
-                                (fun l v -> Dom.Mem.find_on_demand l mem |> Dom.Val.join v)
-                                (Dom.Val.get_powloc v) Dom.Val.bottom
-                            in
-                            if Dom.UserInput.equal (Dom.UserInput.make_symbol p) sym_user_input then
-                              subst_user_input (Dom.Val.get_user_input deref_subst_val)
-                            else subst_user_input setsymbol_sym
-                        | BufferOverrunField.Field {prefix; fn; _} -> (
-                            if Dom.UserInput.equal setsymbol_sym sym_user_input then user_input
-                            else
-                              match prefix with
-                              | BufferOverrunField.Prim (SPath.Deref (_, prefix_deref)) ->
-                                  let prefix_sym = Dom.UserInput.make_symbol prefix_deref in
-                                  if Dom.UserInput.equal prefix_sym sym_user_input then
-                                    let lfield_exp = Exp.Lfield (exp, fn, typ_exp) in
-                                    let lfield_exp_powloc = Sem.eval_locs lfield_exp bo_mem mem in
-                                    let result =
-                                      Dom.PowLocWithIdx.fold
-                                        (fun l ui ->
-                                          Dom.Mem.find_on_demand l mem |> Dom.Val.get_user_input
-                                          |> Dom.UserInput.join ui)
-                                        lfield_exp_powloc Dom.UserInput.bottom
-                                    in
-                                    subst_user_input result
-                                  else subst_user_input setsymbol_sym
-                              | _ ->
-                                  subst_user_input setsymbol_sym )
-                        | _ ->
-                            if Dom.UserInput.equal setsymbol_sym sym_user_input then user_input
-                            else subst_user_input setsymbol_sym
-                      in
-                      Dom.UserInput.join subst_val s
+                      user_input_symbol_subst sym sym_user_input exp typ_exp v_exp bo_mem mem
+                        subst_user_input
                   | _ ->
-                      Dom.UserInput.make_elem elem |> Dom.UserInput.join s)
+                      Dom.UserInput.make_elem elem )
+                  |> Dom.UserInput.join s)
                 s Dom.UserInput.bottom)
-        ; subst_traces= make_subst_traces p v location mem subst_traces }
+        ; subst_traces= make_subst_traces p v_exp location mem subst_traces }
         |> make_subst t1 t2 location bo_mem mem
     | _ ->
         subst )
