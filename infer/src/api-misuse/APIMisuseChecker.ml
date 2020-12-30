@@ -506,18 +506,27 @@ let initial_state {interproc= {proc_desc} as interproc; get_formals} start_node 
       initial
 
 
+let should_skip proc_desc =
+  let node = CFG.Node.loc (CFG.start_node proc_desc) in
+  let pname = Procdesc.get_proc_name proc_desc |> Procname.get_method in
+  RevList.exists ~f:(String.equal (SourceFile.to_rel_path node.file)) Config.skip_files
+  || RevList.exists ~f:(String.equal pname) Config.skip_functions
+
+
 let checker ({InterproceduralAnalysis.proc_desc; analyze_dependency} as analysis_data) =
   BufferOverrunAnalysis.cached_compute_invariant_map
     (InterproceduralAnalysis.bind_payload analysis_data ~f:snd)
   |> ignore ;
   let open IOption.Let_syntax in
   let cfg = CFG.from_pdesc proc_desc in
-  let get_summary proc_name = analyze_dependency proc_name >>| snd in
-  let get_formals callee_pname =
-    AnalysisCallbacks.proc_resolve_attributes callee_pname >>| ProcAttributes.get_pvar_formals
-  in
-  let all_proc = ProcAttributes.get_all () in
-  let analysis_data = {interproc= analysis_data; get_summary; get_formals; all_proc} in
-  let initial = initial_state analysis_data (CFG.start_node cfg) in
-  let inv_map = Analyzer.exec_pdesc analysis_data ~initial proc_desc in
-  compute_summary analysis_data cfg inv_map
+  if should_skip proc_desc then None
+  else
+    let get_summary proc_name = analyze_dependency proc_name >>| snd in
+    let get_formals callee_pname =
+      AnalysisCallbacks.proc_resolve_attributes callee_pname >>| ProcAttributes.get_pvar_formals
+    in
+    let all_proc = ProcAttributes.get_all () in
+    let analysis_data = {interproc= analysis_data; get_summary; get_formals; all_proc} in
+    let initial = initial_state analysis_data (CFG.start_node cfg) in
+    let inv_map = Analyzer.exec_pdesc analysis_data ~initial proc_desc in
+    compute_summary analysis_data cfg inv_map

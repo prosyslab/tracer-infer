@@ -493,7 +493,7 @@ let () =
       let {CommandDoc.name; command_doc} = CommandDoc.data_of_command cmd in
       let on_unknown_arg = on_unknown_arg_from_command cmd in
       let deprecated_long = if InferCommand.(equal ReportDiff) cmd then Some "diff" else None in
-      CLOpt.mk_subcommand cmd ~name ?deprecated_long ~on_unknown_arg (Some command_doc) )
+      CLOpt.mk_subcommand cmd ~name ?deprecated_long ~on_unknown_arg (Some command_doc))
 
 
 let abs_struct =
@@ -551,14 +551,14 @@ and () =
             ~f:(fun b ->
               disable_all_checkers () ;
               var := b ;
-              b )
+              b)
             ( if show_in_help then
               Printf.sprintf "Enable %s and disable all other checkers" config.id
             else "" )
             [] (* do all the work in ~f *) []
           (* do all the work in ~f *)
         in
-        () )
+        ())
   in
   List.iter ~f:mk_only !all_checkers ;
   let _default_checkers : bool ref =
@@ -572,7 +572,7 @@ and () =
               | Some _ when config.enabled_by_default ->
                   Some (Printf.sprintf "$(b,--%s)" config.id)
               | _ ->
-                  None )
+                  None)
             !all_checkers
         |> String.concat ~sep:", " ) )
       ~f:(fun b ->
@@ -580,9 +580,9 @@ and () =
           ~f:(fun (_, config, var) ->
             var :=
               if b then config.enabled_by_default || !var
-              else (not config.enabled_by_default) && !var )
+              else (not config.enabled_by_default) && !var)
           !all_checkers ;
-        b )
+        b)
       [] (* do all the work in ~f *) []
     (* do all the work in ~f *)
   in
@@ -742,7 +742,7 @@ and buck_mode =
     ~in_help:InferCommand.[(Capture, manual_buck)]
     ~f:(fun s ->
       buck_mode := `ClangCompilationDB s ;
-      s )
+      s)
     "Buck integration using the compilation database, with or without dependencies. Only includes \
      clang targets, as per Buck's $(i,#compilation-database) flavor."
     ~symbols:[("no-deps", `NoDeps); ("deps", `DepsTmp)]
@@ -1023,7 +1023,7 @@ and ( bo_debug
         | Debug | Explore | Help ->
             None
         | (Analyze | Capture | Compile | Report | ReportDiff | Run) as command ->
-            Some (command, manual_generic) )
+            Some (command, manual_generic))
   in
   let bo_debug =
     CLOpt.mk_int ~default:0 ~long:"bo-debug"
@@ -1094,7 +1094,7 @@ and ( bo_debug
       ~f:(fun debug ->
         if debug then set_debug_level 2 else set_debug_level 0 ;
         CommandLineOption.keep_args_file := debug ;
-        debug )
+        debug)
       [ developer_mode
       ; print_buckets
       ; print_types
@@ -1107,7 +1107,7 @@ and ( bo_debug
     CLOpt.mk_int_opt ~long:"debug-level" ~in_help:all_generic_manuals ~meta:"level"
       ~f:(fun level ->
         set_debug_level level ;
-        level )
+        level)
       {|Debug level (sets $(b,--bo-debug) $(i,level), $(b,--debug-level-analysis) $(i,level), $(b,--debug-level-capture) $(i,level), $(b,--debug-level-linters) $(i,level)):
   - 0: only basic debugging enabled
   - 1: verbose debugging enabled
@@ -1147,7 +1147,7 @@ and ( bo_debug
        $(b,--allowed-failures) and $(b,--default-linters)."
       ~f:(fun debug ->
         debug_level_linters := if debug then 2 else 0 ;
-        debug )
+        debug)
       [debug; developer_mode] [default_linters; keep_going]
   in
   ( bo_debug
@@ -1212,7 +1212,7 @@ and () =
                 IssueType.register_dynamic ~id:issue_id Warning ~linters_def_file:None Linters
           in
           IssueType.set_enabled issue b ;
-          issue_id )
+          issue_id)
         ?default ~meta:"issue_type"
         ~default_to_string:(fun _ -> "")
         ~in_help:InferCommand.[(Report, manual_generic)]
@@ -1223,7 +1223,7 @@ and () =
   let all_issues = IssueType.all_issues () in
   let disabled_issues_ids =
     List.filter_map all_issues ~f:(fun issue ->
-        Option.some_if (not issue.IssueType.enabled) issue.IssueType.unique_id )
+        Option.some_if (not issue.IssueType.enabled) issue.IssueType.unique_id)
   in
   let pp_issue fmt issue =
     let pp_enabled fmt enabled =
@@ -1667,7 +1667,8 @@ and nullsafe_optimistic_third_party_in_default_mode =
     ~long:
       "nullsafe-optimistic-third-party-in-default-mode"
       (* Turned on for compatibility reasons
-       *) ~default:true
+       *)
+    ~default:true
     "Nullsafe: Unless @Nullsafe annotation is used, treat not annotated third party method params \
      as if they were annotated as nullable, and return values as if they were annotated as \
      non-null"
@@ -2096,7 +2097,7 @@ and rest =
     ~in_help:InferCommand.[(Capture, manual_generic); (Run, manual_generic)]
     "Stop argument processing, use remaining arguments as a build command" ~usage:exe_usage
     (fun build_exe ->
-      match Filename.basename build_exe with "java" | "javac" -> CLOpt.Javac | _ -> CLOpt.NoParse )
+      match Filename.basename build_exe with "java" | "javac" -> CLOpt.Javac | _ -> CLOpt.NoParse)
 
 
 and results_dir =
@@ -2169,6 +2170,12 @@ and skip_duplicated_types =
   CLOpt.mk_bool ~long:"skip-duplicated-types" ~default:true
     ~in_help:InferCommand.[(ReportDiff, manual_generic)]
     "Skip fixed-then-introduced duplicated types while computing differential reports"
+
+
+and skip_files = CLOpt.mk_string_list ~default:[] ~long:"skip-files" "Skip specified files"
+
+and skip_functions =
+  CLOpt.mk_string_list ~default:[] ~long:"skip-functions" "Skip specified functions"
 
 
 and skip_translation_headers =
@@ -2524,7 +2531,7 @@ let javac_classes_out =
         (* extend env var args to pass args to children that do not receive the rest args *)
         CLOpt.extend_env_args ["--results-dir"; classes_out_infer] ;
         results_dir := classes_out_infer ) ;
-      classes_out )
+      classes_out)
     ""
 
 
@@ -2568,7 +2575,7 @@ let post_parsing_initialization command_opt =
             CLOpt.init_work_dir ^/ filename
           else filename
         in
-        Unix.putenv ~key:CommandDoc.inferconfig_env_var ~data:abs_filename ) ;
+        Unix.putenv ~key:CommandDoc.inferconfig_env_var ~data:abs_filename) ;
   ( match !version with
   | `Full when !buck ->
       (* Buck reads stderr in some versions, stdout in others *)
@@ -2797,7 +2804,7 @@ and censor_report =
           in
           (polarity_regex issue_type_re, polarity_regex filename_re, reason_str)
       | _ ->
-          L.(die UserError) "Ill-formed report filter: %s" str )
+          L.(die UserError) "Ill-formed report filter: %s" str)
 
 
 and changed_files_index = !changed_files_index
@@ -2943,7 +2950,7 @@ and help_checker =
           L.die UserError
             "Wrong argument for --help-checker: '%s' is not a known checker identifier.@\n\
              @\n\
-             See --list-checkers for the list of all checkers." checker_string )
+             See --list-checkers for the list of all checkers." checker_string)
 
 
 and help_issue_type =
@@ -2956,7 +2963,7 @@ and help_issue_type =
             "Wrong argument for --help-issue-type: '%s' is not a known issue type identifier, or \
              is defined in a linters file.@\n\
              @\n\
-             See --list-issue-types for the list of all known issue types." id )
+             See --list-issue-types for the list of all known issue types." id)
 
 
 and html = !html
@@ -3248,6 +3255,10 @@ and skip_analysis_in_path_skips_compilation = !skip_analysis_in_path_skips_compi
 
 and skip_duplicated_types = !skip_duplicated_types
 
+and skip_files = !skip_files
+
+and skip_functions = !skip_functions
+
 and skip_translation_headers = RevList.to_list !skip_translation_headers
 
 and source_preview = !source_preview
@@ -3390,7 +3401,7 @@ let enabled_checkers =
           | [] ->
               (newly_enabled_checkers, enabled_checkers)
           | _ :: _ ->
-              (to_enable @ newly_enabled_checkers, to_enable @ enabled_checkers) )
+              (to_enable @ newly_enabled_checkers, to_enable @ enabled_checkers))
     in
     if List.is_empty newly_enabled_checkers then enabled_checkers
     else fixpoint newly_enabled_checkers enabled_checkers'
@@ -3433,7 +3444,7 @@ let dynamic_dispatch = is_checker_enabled Biabduction
 (** Check if a Java package is external to the repository *)
 let java_package_is_external package =
   RevList.exists external_java_packages ~f:(fun (prefix : string) ->
-      String.is_prefix package ~prefix )
+      String.is_prefix package ~prefix)
 
 
 let is_in_custom_symbols list_name symbol =
