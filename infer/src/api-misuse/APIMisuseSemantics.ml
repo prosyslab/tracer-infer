@@ -21,8 +21,11 @@ let bo_eval pvar bo_mem_opt mem =
   | Some bo_mem ->
       let loc = pvar |> AbsLoc.Loc.of_pvar in
       if BoDomain.Mem.is_stack_loc loc bo_mem.pre then
+        let _ = L.d_printfln_escaped "Stack loc: %a" AbsLoc.Loc.pp loc in
         Dom.LocWithIdx.of_loc loc |> Fun.flip Mem.find mem
-      else Dom.LocWithIdx.of_loc loc |> Dom.PowLocWithIdx.singleton |> Dom.Val.of_pow_loc
+      else
+        let _ = L.d_printfln_escaped "NonStack loc: %a" AbsLoc.Loc.pp loc in
+        Dom.LocWithIdx.of_loc loc |> Dom.PowLocWithIdx.singleton |> Dom.Val.of_pow_loc
   | None ->
       pvar |> AbsLoc.Loc.of_pvar |> Dom.LocWithIdx.of_loc |> Dom.PowLocWithIdx.singleton
       |> Dom.Val.of_pow_loc

@@ -164,6 +164,8 @@ module LocWithIdx = struct
 
   let append_field fn l = match l with Loc l -> Loc (Loc.append_field l fn) | _ -> l
 
+  let of_symbol p = Allocsite.make_symbol p |> Loc.of_allocsite |> of_loc
+
   let pp fmt = function
     | Loc l ->
         AbsLoc.Loc.pp fmt l
@@ -369,48 +371,6 @@ module Val = struct
 
   let matcher = QualifiedCppName.Match.of_fuzzy_qual_names ["std::map"]
 
-  let on_demand ?typ loc =
-    let open Typ in
-    match LocWithIdx.to_loc loc |> Loc.get_path with
-    | Some p -> (
-      match typ with
-      | Some {Typ.desc= Tptr ({desc= Tstruct (CppClass (name, _))}, _)}
-        when QualifiedCppName.Match.match_qualifiers matcher name ->
-          L.d_printfln_escaped "Val.on_demand for %a (%a)" LocWithIdx.pp loc QualifiedCppName.pp
-            name ;
-          L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
-          let deref_loc =
-            SPath.deref ~deref_kind:Deref_CPointer p |> Allocsite.make_symbol |> Loc.of_allocsite
-          in
-          let powloc = deref_loc |> LocWithIdx.of_loc |> PowLocWithIdx.singleton in
-          let int_overflow = IntOverflow.make_symbol p in
-          let user_input = UserInput.make_symbol p in
-          let loc = p |> Allocsite.make_symbol |> Loc.of_allocsite in
-          let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
-          {bottom with powloc; int_overflow; user_input; traces}
-      | Some ({Typ.desc= Tptr _} as typ) ->
-          L.d_printfln_escaped "Val.on_demand for %a (%s)" LocWithIdx.pp loc (Typ.to_string typ) ;
-          L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
-          let deref_loc =
-            SPath.deref ~deref_kind:Deref_CPointer p |> Allocsite.make_symbol |> Loc.of_allocsite
-          in
-          let powloc = deref_loc |> LocWithIdx.of_loc |> PowLocWithIdx.singleton in
-          let loc = p |> Allocsite.make_symbol |> Loc.of_allocsite in
-          L.d_printfln_escaped "Powloc: %a" PowLocWithIdx.pp powloc ;
-          let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
-          {bottom with powloc; traces}
-      | _ ->
-          L.d_printfln_escaped "Val.on_demand for %a (Others)" LocWithIdx.pp loc ;
-          let int_overflow = IntOverflow.make_symbol p in
-          let user_input = UserInput.make_symbol p in
-          let loc = Allocsite.make_symbol p |> Loc.of_allocsite in
-          let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
-          {bottom with int_overflow; user_input; traces} )
-    | None ->
-        L.d_printfln_escaped "Path none" ;
-        bottom
-
-
   let get_powloc v = v.powloc
 
   let get_init v = v.init
@@ -449,11 +409,25 @@ module Val = struct
     && Str.leq ~lhs:lhs.str ~rhs:rhs.str
 
 
-  let subst {Subst.subst_int_overflow; subst_user_input; subst_traces} v =
+  let subst {Subst.subst_powloc; subst_int_overflow; subst_user_input; subst_traces} v =
     { v with
-      int_overflow= subst_int_overflow v.int_overflow
+      powloc=
+        PowLocWithIdx.fold
+          (fun x s -> LocWithIdx.to_loc x |> subst_powloc |> PowLoc.join s)
+          v.powloc PowLoc.bot
+        |> PowLocWithIdx.of_pow_loc
+    ; int_overflow= subst_int_overflow v.int_overflow
     ; user_input= subst_user_input v.user_input
     ; traces= subst_traces v.traces }
+
+
+  let symbol p =
+    let loc = p |> Allocsite.make_symbol |> Loc.of_allocsite in
+    let powloc = loc |> LocWithIdx.of_loc |> PowLocWithIdx.singleton in
+    let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
+    let user_input = UserInput.make_symbol p in
+    let int_overflow = IntOverflow.make_symbol p in
+    {bottom with powloc; int_overflow; user_input; traces}
 
 
   let pp fmt v =
@@ -467,7 +441,77 @@ module Mem = struct
 
   let initial = empty
 
-  let find_on_demand ?typ k m = try find k m with _ -> Val.on_demand ?typ k
+  let on_demand ?typ loc mem =
+    let open Typ in
+    let open Val in
+    match LocWithIdx.to_loc loc |> Loc.get_path with
+    | Some p -> (
+      match typ with
+      | Some {Typ.desc= Tptr ({desc= Tstruct (CppClass (name, _))}, _)}
+        when QualifiedCppName.Match.match_qualifiers matcher name ->
+          L.d_printfln_escaped "Val.on_demand for %a (%a)" LocWithIdx.pp loc QualifiedCppName.pp
+            name ;
+          L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
+          let loc = p |> Allocsite.make_symbol |> Loc.of_allocsite in
+          let powloc = loc |> LocWithIdx.of_loc |> PowLocWithIdx.singleton in
+          let int_overflow = IntOverflow.make_symbol p in
+          let user_input = UserInput.make_symbol p in
+          let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
+          ({bottom with powloc; int_overflow; user_input; traces}, mem)
+      | Some ({Typ.desc= Tptr _} as typ) ->
+          L.d_printfln_escaped "Val.on_demand for %a (%s)" LocWithIdx.pp loc (Typ.to_string typ) ;
+          L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
+          let loc = p |> Allocsite.make_symbol |> Loc.of_allocsite in
+          let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
+          let deref_sym = p |> SPath.deref ~deref_kind:SPath.Deref_CPointer in
+          let powloc = LocWithIdx.of_symbol deref_sym |> PowLocWithIdx.singleton in
+          L.d_printfln_escaped "Powloc: %a" PowLocWithIdx.pp powloc ;
+          let deref2_sym = deref_sym |> SPath.deref ~deref_kind:SPath.Deref_CPointer in
+          let mem =
+            add (LocWithIdx.of_loc loc) (Val.symbol deref_sym) mem
+            |> add (LocWithIdx.of_symbol deref_sym) (Val.symbol deref2_sym)
+          in
+          ({bottom with powloc; traces}, mem)
+      | Some typ ->
+          L.d_printfln_escaped "Val.on_demand for %a (%a)" LocWithIdx.pp loc (Typ.pp Pp.text) typ ;
+          let int_overflow = IntOverflow.make_symbol p in
+          let user_input = UserInput.make_symbol p in
+          let loc = Allocsite.make_symbol p |> Loc.of_allocsite in
+          let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
+          ({bottom with int_overflow; user_input; traces}, mem)
+      | None ->
+          L.(debug Analysis Quiet) "Unknown: %a\n" SPath.pp_partial p ;
+          L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
+          let loc = p |> Allocsite.make_symbol |> Loc.of_allocsite in
+          let deref_sym = p |> SPath.deref ~deref_kind:SPath.Deref_CPointer in
+          let powloc = LocWithIdx.of_symbol deref_sym |> PowLocWithIdx.singleton in
+          L.d_printfln_escaped "Powloc: %a" PowLocWithIdx.pp powloc ;
+          let deref2_sym = deref_sym |> SPath.deref ~deref_kind:SPath.Deref_CPointer in
+          let mem =
+            add (LocWithIdx.of_loc loc) (Val.symbol deref_sym) mem
+            |> add (LocWithIdx.of_symbol deref_sym) (Val.symbol deref2_sym)
+          in
+          (Val.symbol deref_sym, mem) )
+    | None ->
+        L.d_printfln_escaped "Path none" ;
+        (bottom, mem)
+
+
+  let find_var_or_symbol k m =
+    try Some (find k m)
+    with _ -> (
+      match LocWithIdx.to_loc k |> Loc.get_path with
+      | Some p -> (
+        try Some (find (LocWithIdx.of_symbol p) m) with _ -> None )
+      | None ->
+          None )
+
+
+  let find_init_on_demand ?typ k m =
+    match find_var_or_symbol k m with Some v -> (v, m) | None -> on_demand ?typ k m
+
+
+  let find_on_demand ?typ k m = find_init_on_demand ?typ k m |> fst
 
   let find k m = try find k m with _ -> Val.bottom
 

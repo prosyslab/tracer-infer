@@ -66,32 +66,66 @@ let make_subst_traces p v location mem subst_traces s =
   |> subst_traces
 
 
-let user_input_symbol_subst sym sym_user_input exp typ_exp v bo_mem mem subst_user_input =
+let user_input_symbol_subst sym p exp typ_exp location bo_mem mem subst_user_input =
+  L.d_printfln_escaped "make subst user_input" ;
+  let sym_user_input = Dom.UserInput.make_symbol p in
   let setsymbol_sym = Dom.UserInput.make_symbol sym in
+  let ({Dom.Val.powloc; _} as v) = Sem.eval exp location bo_mem mem in
   match sym with
-  | BufferOverrunField.Prim (SPath.Deref (_, p)) -> (
-    match p with
-    | BufferOverrunField.Prim (SPath.Deref (_, p2)) ->
-        let deref2_powloc =
-          Dom.Val.get_powloc v |> Dom.PowLocWithIdx.map Dom.LocWithIdx.loc_deref
-        in
-        let deref2_subst_val =
-          Dom.PowLocWithIdx.fold
-            (fun l v -> Dom.Mem.find_on_demand l mem |> Dom.Val.join v)
-            deref2_powloc Dom.Val.bottom
-        in
-        if Dom.UserInput.equal (Dom.UserInput.make_symbol p2) sym_user_input then
-          subst_user_input (Dom.Val.get_user_input deref2_subst_val)
-        else subst_user_input setsymbol_sym
-    | _ ->
-        let deref_subst_val =
-          Dom.PowLocWithIdx.fold
-            (fun l v -> Dom.Mem.find_on_demand l mem |> Dom.Val.join v)
-            (Dom.Val.get_powloc v) Dom.Val.bottom
-        in
-        if Dom.UserInput.equal (Dom.UserInput.make_symbol p) sym_user_input then
-          subst_user_input (Dom.Val.get_user_input deref_subst_val)
-        else subst_user_input setsymbol_sym )
+  | BufferOverrunField.Prim (SPath.Deref (_, Prim (Deref (_, Prim (Deref (_, p2)))))) ->
+      let {Dom.Val.powloc; _} =
+        Dom.PowLocWithIdx.fold
+          (fun l v -> Dom.Mem.find l mem |> Dom.Val.join v)
+          powloc Dom.Val.bottom
+      in
+      let deref2_subst_val =
+        Dom.PowLocWithIdx.fold
+          (fun l v -> Dom.Mem.find l mem |> Dom.Val.join v)
+          powloc Dom.Val.bottom
+      in
+      L.(debug Analysis Quiet) "v: %a\n" Dom.Val.pp v ;
+      L.d_printfln_escaped "Path *** %a =? %a -> %a" Symb.SymbolPath.pp_partial sym Dom.UserInput.pp
+        sym_user_input Dom.Val.pp deref2_subst_val ;
+      L.(debug Analysis Quiet)
+        "Path *** %a =? %a -> %a\n" Symb.SymbolPath.pp_partial p2 Dom.UserInput.pp sym_user_input
+        Dom.Val.pp deref2_subst_val ;
+      if Dom.UserInput.equal (Dom.UserInput.make_symbol p2) sym_user_input then
+        let _ = L.d_printfln_escaped "subst" in
+        let _ = L.(debug Analysis Quiet) "subst\n" in
+        Dom.Val.get_user_input deref2_subst_val
+      else subst_user_input setsymbol_sym
+  | BufferOverrunField.Prim (SPath.Deref (_, Prim (Deref (_, p2)))) ->
+      let deref2_subst_val =
+        Dom.PowLocWithIdx.fold
+          (fun l v -> Dom.Mem.find l mem |> Dom.Val.join v)
+          powloc Dom.Val.bottom
+      in
+      L.(debug Analysis Quiet) "v: %a\n" Dom.Val.pp v ;
+      L.d_printfln_escaped "Path ** %a =? %a -> %a" Symb.SymbolPath.pp_partial sym Dom.UserInput.pp
+        sym_user_input Dom.Val.pp deref2_subst_val ;
+      L.(debug Analysis Quiet)
+        "Path ** %a =? %a -> %a\n" Symb.SymbolPath.pp_partial p2 Dom.UserInput.pp sym_user_input
+        Dom.Val.pp deref2_subst_val ;
+      if Dom.UserInput.equal (Dom.UserInput.make_symbol p2) sym_user_input then
+        let _ = L.d_printfln_escaped "subst" in
+        let _ = L.(debug Analysis Quiet) "subst\n" in
+        Dom.Val.get_user_input deref2_subst_val
+      else subst_user_input setsymbol_sym
+  | BufferOverrunField.Prim (SPath.Deref (_, p)) ->
+      let deref_subst_val =
+        Dom.PowLocWithIdx.fold
+          (fun l v -> Dom.Mem.find_on_demand l mem |> Dom.Val.join v)
+          (Dom.Val.get_powloc v) Dom.Val.bottom
+      in
+      L.d_printfln_escaped "Path * %a =? %a -> %a" Symb.SymbolPath.pp_partial sym Dom.UserInput.pp
+        sym_user_input Dom.Val.pp v ;
+      L.(debug Analysis Quiet)
+        "Path * %a =? %a -> %a" Symb.SymbolPath.pp_partial sym Dom.UserInput.pp sym_user_input
+        Dom.Val.pp v ;
+      if Dom.UserInput.equal (Dom.UserInput.make_symbol p) sym_user_input then
+        let _ = L.d_printfln_escaped "subst" in
+        subst_user_input (Dom.Val.get_user_input deref_subst_val)
+      else subst_user_input setsymbol_sym
   | BufferOverrunField.Field {prefix; fn; _} -> (
     match prefix with
     | BufferOverrunField.Prim (SPath.Deref (_, prefix_deref)) ->
@@ -110,8 +144,57 @@ let user_input_symbol_subst sym sym_user_input exp typ_exp v bo_mem mem subst_us
     | _ ->
         subst_user_input setsymbol_sym )
   | _ ->
+      L.d_printfln_escaped "Path %a =? %a -> %a" Symb.SymbolPath.pp_partial sym Dom.UserInput.pp
+        sym_user_input Dom.Val.pp v ;
       if Dom.UserInput.equal setsymbol_sym sym_user_input then Dom.Val.get_user_input v
       else subst_user_input setsymbol_sym
+
+
+let loc_of_symbol s = Allocsite.make_symbol s |> Loc.of_allocsite
+
+let make_subst_powloc p exp location bo_mem mem subst_powloc s =
+  let sym_absloc = p |> SPath.deref ~deref_kind:SPath.Deref_CPointer |> loc_of_symbol in
+  L.d_printfln_escaped "make subst powloc" ;
+  let {Dom.Val.powloc; _} = Sem.eval exp location bo_mem mem in
+  let powloc =
+    Dom.PowLocWithIdx.fold
+      (fun l s -> Dom.LocWithIdx.to_loc l |> Fun.flip AbsLoc.PowLoc.add s)
+      powloc AbsLoc.PowLoc.bot
+  in
+  L.d_printfln_escaped "%a =? %a -> %a" Loc.pp s Loc.pp sym_absloc PowLoc.pp powloc ;
+  if AbsLoc.Loc.equal s sym_absloc then
+    let _ = L.d_printfln_escaped "subst" in
+    powloc
+  else subst_powloc s
+
+
+let make_subst_int_overflow p exp location bo_mem mem subst_int_overflow s =
+  let {Dom.Val.int_overflow; _} = Sem.eval exp location bo_mem mem in
+  match s with
+  | Dom.IntOverflow.Symbol (BufferOverrunField.Prim (SPath.Deref (_, Prim (Deref (_, p))))) ->
+      let sym_int_overflow =
+        SPath.deref ~deref_kind:SPath.Deref_CPointer p
+        |> SPath.deref ~deref_kind:SPath.Deref_CPointer
+        |> Dom.IntOverflow.make_symbol
+      in
+      L.d_printfln_escaped "make subst int_overflow **" ;
+      L.d_printfln_escaped "%a =? %a -> %a" Dom.IntOverflow.pp s Dom.IntOverflow.pp sym_int_overflow
+        Dom.IntOverflow.pp int_overflow ;
+      if Dom.IntOverflow.equal s sym_int_overflow then int_overflow else subst_int_overflow s
+  | Dom.IntOverflow.Symbol (BufferOverrunField.Prim (SPath.Deref (_, p))) ->
+      let sym_int_overflow =
+        SPath.deref ~deref_kind:SPath.Deref_CPointer p |> Dom.IntOverflow.make_symbol
+      in
+      L.d_printfln_escaped "make subst int_overflow *" ;
+      L.d_printfln_escaped "%a =? %a -> %a" Dom.IntOverflow.pp s Dom.IntOverflow.pp sym_int_overflow
+        Dom.IntOverflow.pp int_overflow ;
+      if Dom.IntOverflow.equal s sym_int_overflow then int_overflow else subst_int_overflow s
+  | _ ->
+      let sym_int_overflow = Dom.IntOverflow.make_symbol p in
+      L.d_printfln_escaped "make subst int_overflow" ;
+      L.d_printfln_escaped "%a =? %a -> %a" Dom.IntOverflow.pp s Dom.IntOverflow.pp sym_int_overflow
+        Dom.IntOverflow.pp int_overflow ;
+      if Dom.IntOverflow.equal s sym_int_overflow then int_overflow else subst_int_overflow s
 
 
 let rec make_subst formals actuals location bo_mem mem
@@ -120,36 +203,19 @@ let rec make_subst formals actuals location bo_mem mem
   | (pvar, _) :: t1, (exp, typ_exp) :: t2 -> (
     match pvar |> Loc.of_pvar |> Loc.get_path with
     | Some p ->
-        let sym_absloc = Allocsite.make_symbol p |> Loc.of_allocsite in
-        let sym_int_overflow = Dom.IntOverflow.make_symbol p in
-        let sym_user_input = Dom.UserInput.make_symbol p in
-        L.(debug Analysis Quiet) "make subst sym: %a\n" AbsLoc.Loc.pp sym_absloc ;
-        let ({Dom.Val.powloc; int_overflow; user_input; _} as v_exp) =
-          Sem.eval exp location bo_mem mem
-        in
+        let ({Dom.Val.int_overflow; user_input; _} as v_exp) = Sem.eval exp location bo_mem mem in
         L.d_printfln_escaped "make subst: %a %a\n" SPath.pp_partial p Dom.Val.pp v_exp ;
-        let powloc =
-          Dom.PowLocWithIdx.fold
-            (fun l s -> Dom.LocWithIdx.to_loc l |> Fun.flip AbsLoc.PowLoc.add s)
-            powloc AbsLoc.PowLoc.bot
-        in
-        L.(debug Analysis Quiet) "make subst locs: %a\n" AbsLoc.PowLoc.pp powloc ;
-        L.(debug Analysis Quiet) "make subst int overflow: %a\n" Dom.IntOverflow.pp int_overflow ;
-        L.(debug Analysis Quiet) "make subst user input: %a\n" Dom.UserInput.pp user_input ;
-        { Dom.Subst.subst_powloc=
-            (fun s -> if AbsLoc.Loc.equal s sym_absloc then powloc else subst_powloc s)
-        ; subst_int_overflow=
-            (fun s ->
-              if Dom.IntOverflow.equal s sym_int_overflow then int_overflow
-              else subst_int_overflow s)
+        L.d_printfln_escaped "make subst int overflow: %a" Dom.IntOverflow.pp int_overflow ;
+        L.d_printfln_escaped "make subst user input: %a" Dom.UserInput.pp user_input ;
+        { Dom.Subst.subst_powloc= make_subst_powloc p exp location bo_mem mem subst_powloc
+        ; subst_int_overflow= make_subst_int_overflow p exp location bo_mem mem subst_int_overflow
         ; subst_user_input=
             (fun s ->
               Dom.UserInput.Set.fold
                 (fun elem s ->
                   ( match elem with
                   | Symbol sym ->
-                      user_input_symbol_subst sym sym_user_input exp typ_exp v_exp bo_mem mem
-                        subst_user_input
+                      user_input_symbol_subst sym p exp typ_exp location bo_mem mem subst_user_input
                   | _ ->
                       Dom.UserInput.make_elem elem )
                   |> Dom.UserInput.join s)
@@ -170,7 +236,7 @@ module TransferFunctions = struct
 
   open AbsLoc
 
-  let instantiate_param callee_formals params
+  let instantiate_param subst callee_formals params
       (bo_mem : GOption.some BoDomain.Mem.t0 AbstractInterpreter.State.t option) location
       callee_exit_mem mem =
     List.fold2 callee_formals params ~init:mem ~f:(fun mem (p, _) (e, _) ->
@@ -180,11 +246,8 @@ module TransferFunctions = struct
               (match bo_mem with Some bomem -> BoSemantics.eval_locs e bomem.pre | _ -> PowLoc.bot)
               |> Dom.PowLocWithIdx.of_pow_loc
             in
-            let deref_formal_loc =
-              formal
-              |> SPath.deref ~deref_kind:SPath.Deref_CPointer
-              |> Allocsite.make_symbol |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc
-            in
+            let deref_sym = formal |> SPath.deref ~deref_kind:SPath.Deref_CPointer in
+            let deref_formal_loc = Dom.LocWithIdx.of_symbol deref_sym in
             let mem =
               Dom.PowLocWithIdx.fold
                 (fun loc mem ->
@@ -196,11 +259,13 @@ module TransferFunctions = struct
                     callee_exit_mem mem)
                 param_powloc mem
             in
-            let param_val = Sem.eval exp location bo_mem mem in
             match Domain.find_opt deref_formal_loc callee_exit_mem with
             | Some v ->
+                L.d_printfln_escaped "\nInstantiate_param" ;
+                let param_val = Sem.eval exp location bo_mem mem in
                 let v =
                   {v with traces= TraceSet.concat param_val.Dom.Val.traces v.Dom.Val.traces}
+                  |> Dom.Val.subst subst
                 in
                 L.d_printfln_escaped "Formal loc: %a" Dom.LocWithIdx.pp deref_formal_loc ;
                 L.d_printfln_escaped "Value: %a" Dom.Val.pp v ;
@@ -221,10 +286,9 @@ module TransferFunctions = struct
         mem
 
 
-  let instantiate_ret ret_id callee_formals callee_pname params location bo_mem callee_exit_mem mem
-      =
-    let subst = make_subst callee_formals params location bo_mem mem Dom.Subst.empty in
+  let instantiate_ret subst ret_id callee_pname callee_exit_mem mem =
     let ret_var = ret_id |> Loc.of_id |> Dom.LocWithIdx.of_loc in
+    L.d_printfln_escaped "\nInstantiate_return" ;
     let ret_val =
       Domain.find
         (Loc.of_pvar (Pvar.get_ret_pvar callee_pname) |> Dom.LocWithIdx.of_loc)
@@ -263,8 +327,9 @@ module TransferFunctions = struct
 
   let instantiate_mem (ret_id, _) callee_formals callee_pname params location bo_mem mem
       callee_exit_mem =
-    instantiate_ret ret_id callee_formals callee_pname params location bo_mem callee_exit_mem mem
-    |> instantiate_param callee_formals params bo_mem location callee_exit_mem
+    let subst = make_subst callee_formals params location bo_mem mem Dom.Subst.empty in
+    instantiate_ret subst ret_id callee_pname callee_exit_mem mem
+    |> instantiate_param subst callee_formals params bo_mem location callee_exit_mem
 
 
   let exec_instr : Domain.t -> analysis_data -> CFG.Node.t -> Sil.instr -> Domain.t =
@@ -292,10 +357,12 @@ module TransferFunctions = struct
         (* id is a pure variable. id itself is a valid loc *)
         let id_loc = Loc.of_id id |> Dom.LocWithIdx.of_loc in
         let locs = Sem.eval e loc bo_mem_opt mem |> Dom.Val.get_powloc in
-        let v =
+        let v, mem =
           Dom.PowLocWithIdx.fold
-            (fun l v -> Dom.Mem.find_on_demand ~typ l mem |> Dom.Val.join v)
-            locs Dom.Val.bottom
+            (fun l (v, mem) ->
+              let v', mem = Dom.Mem.find_init_on_demand ~typ l mem in
+              (Dom.Val.join v v', mem))
+            locs (Dom.Val.bottom, mem)
         in
         Dom.Mem.add id_loc v mem
     | Prune _ ->
@@ -489,15 +556,24 @@ let initialize_cmd_args start_node formals mem =
     match argv |> Loc.of_pvar |> Loc.get_path with
     | Some formal ->
         let location = CFG.Node.loc start_node in
-        let deref_formal_loc =
+        let deref2_formal_loc =
           formal
           |> SPath.deref ~deref_kind:SPath.Deref_CPointer
           |> SPath.deref ~deref_kind:SPath.Deref_CPointer
           |> Allocsite.make_symbol |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc
         in
         let traces = [Trace.make_input location] |> TraceSet.singleton in
-        let v = Dom.UserInput.make start_node location |> Dom.Val.of_user_input ~traces in
-        Dom.Mem.add deref_formal_loc v mem
+        let v2 = Dom.UserInput.make start_node location |> Dom.Val.of_user_input ~traces in
+        let deref_formal_loc1 =
+          formal
+          |> SPath.deref ~deref_kind:SPath.Deref_CPointer
+          |> Allocsite.make_symbol |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc
+        in
+        let v1 = deref2_formal_loc |> Dom.PowLocWithIdx.singleton |> Dom.Val.of_pow_loc in
+        let formal_loc = Loc.of_pvar argv |> Dom.LocWithIdx.of_loc in
+        let v = deref_formal_loc1 |> Dom.PowLocWithIdx.singleton |> Dom.Val.of_pow_loc in
+        Dom.Mem.add formal_loc v mem |> Dom.Mem.add deref_formal_loc1 v1
+        |> Dom.Mem.add deref2_formal_loc v2
     | None ->
         mem )
   | _ ->
