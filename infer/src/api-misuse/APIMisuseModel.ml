@@ -60,7 +60,25 @@ let getc _ =
   {exec; check= empty_check_fun}
 
 
-let getenv _ = {exec= empty_exec_fun; check= empty_check_fun}
+let getenv _ =
+  let exec {node; node_hash; location} ~ret mem =
+    let traces = [Trace.make_input location] |> Trace.Set.singleton in
+    let user_input_v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
+    let new_allocsite =
+      Allocsite.make
+        (Procname.from_string_c_fun "getenv")
+        ~node_hash ~inst_num:0 ~dimension:1 ~path:None ~represents_multiple_values:false
+    in
+    let alloc_loc = new_allocsite |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc in
+    let alloc_powloc = [alloc_loc] |> Dom.PowLocWithIdx.of_list in
+    let ret_id, _ = ret in
+    let ret_loc = Dom.LocWithIdx.of_loc (Loc.of_id ret_id) in
+    mem
+    |> Dom.Mem.add alloc_loc user_input_v
+    |> Dom.Mem.add ret_loc (Dom.Val.of_pow_loc alloc_powloc)
+  in
+  {exec; check= empty_check_fun}
+
 
 let malloc size =
   let exec {bo_mem_opt} ~ret:_ (mem : Sem.Mem.t) =
@@ -149,7 +167,7 @@ let printf str =
 
 let sprintf _ str = printf str
 
-let vsnprintf _ _ str = printf str
+let snprintf _ _ str = printf str
 
 let infer_print exp =
   let exec {location; bo_mem_opt} ~ret:_ mem =
@@ -341,8 +359,9 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"calloc" <>$ capt_exp $+ capt_exp $+...$--> calloc
     ; -"printf" <>$ capt_exp $+...$--> printf
     ; -"sprintf" <>$ capt_exp $+ capt_exp $+...$--> sprintf
+    ; -"snprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> snprintf
     ; -"vsprintf" <>$ capt_exp $+ capt_exp $+...$--> sprintf
-    ; -"vsnprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> vsnprintf
+    ; -"vsnprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> snprintf
     ; -"_IO_getc" <>$ capt_exp $--> getc
     ; -"getenv" <>$ capt_exp $--> getenv
     ; -"fgetc" <>$ capt_exp $--> getc

@@ -138,6 +138,7 @@ let user_input_symbol_subst sym p exp typ_exp location bo_mem mem subst_user_inp
               (fun l ui ->
                 Dom.Mem.find_on_demand l mem |> Dom.Val.get_user_input |> Dom.UserInput.join ui)
               lfield_exp_powloc Dom.UserInput.bottom
+            |> Dom.UserInput.ref_symbols
           in
           subst_user_input result
         else subst_user_input setsymbol_sym

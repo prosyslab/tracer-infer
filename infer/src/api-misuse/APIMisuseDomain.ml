@@ -320,6 +320,20 @@ module UserInput = struct
   let pp = Set.pp
 
   let make_elem e = Set.singleton e
+
+  let ref_symbols t =
+    Set.map
+      (fun elem ->
+        match elem with
+        | Symbol s -> (
+          match s with
+          | BufferOverrunField.Prim (SPath.Deref (_, s_ref)) ->
+              Symbol s_ref
+          | _ ->
+              elem )
+        | _ ->
+            elem)
+      t
 end
 
 module Subst = struct
@@ -409,13 +423,14 @@ module Val = struct
     && Str.leq ~lhs:lhs.str ~rhs:rhs.str
 
 
-  let subst {Subst.subst_powloc; subst_int_overflow; subst_user_input; subst_traces} v =
+  let subst {Subst.subst_int_overflow; subst_user_input; subst_traces} v =
     { v with
       powloc=
-        PowLocWithIdx.fold
-          (fun x s -> LocWithIdx.to_loc x |> subst_powloc |> PowLoc.join s)
-          v.powloc PowLoc.bot
-        |> PowLocWithIdx.of_pow_loc
+        v.powloc
+        (* PowLocWithIdx.fold
+             (fun x s -> LocWithIdx.to_loc x |> subst_powloc |> PowLoc.join s)
+             v.powloc PowLoc.bot
+           |> PowLocWithIdx.of_pow_loc *)
     ; int_overflow= subst_int_overflow v.int_overflow
     ; user_input= subst_user_input v.user_input
     ; traces= subst_traces v.traces }
