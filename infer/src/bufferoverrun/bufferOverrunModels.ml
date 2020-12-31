@@ -261,6 +261,7 @@ let strcat dest_exp src_exp =
   {exec; check}
 
 
+(* for API checker
 let realloc src_exp size_exp =
   let exec ({location; tenv; integer_type_widths} as model_env) ~ret:(id, _) mem =
     let size_exp = Prop.exp_normalize_noabs tenv Predicates.sub_empty size_exp in
@@ -270,10 +271,10 @@ let realloc src_exp size_exp =
     let mem = Dom.Mem.add_stack (Loc.of_id id) v mem in
     Option.value_map dyn_length ~default:mem ~f:(fun dyn_length ->
         let dyn_length = Dom.Val.get_itv (Sem.eval integer_type_widths dyn_length mem) in
-        BoUtils.Exec.set_dyn_length model_env typ (Dom.Val.get_array_locs v) dyn_length mem )
+        BoUtils.Exec.set_dyn_length model_env typ (Dom.Val.get_array_locs v) dyn_length mem)
   and check = check_alloc_size ~can_be_zero:false size_exp in
   {exec; check}
-
+*)
 
 let placement_new size_exp {exp= src_exp1; typ= t1} src_arg2_opt =
   match (t1.Typ.desc, src_arg2_opt) with
@@ -605,7 +606,7 @@ module StdVector = struct
 
   let set_size {location} locs new_size mem =
     Dom.Mem.transform_mem locs mem ~f:(fun v ->
-        Dom.Val.set_array_length location ~length:new_size v )
+        Dom.Val.set_array_length location ~length:new_size v)
 
 
   let empty elt_typ vec_arg =
@@ -711,7 +712,7 @@ module StdBasicString = struct
       let mem =
         Option.value_map len_opt ~default:mem ~f:(fun len ->
             let {exec= malloc_exec} = malloc ~can_be_zero:true len in
-            malloc_exec model_env ~ret mem )
+            malloc_exec model_env ~ret mem)
       in
       let tgt_locs = Sem.eval_locs tgt_exp mem in
       let tgt_deref =
@@ -732,7 +733,7 @@ module StdBasicString = struct
           let {check= malloc_check} = malloc ~can_be_zero:true len in
           let cond_set = malloc_check model_env mem cond_set in
           BoUtils.Check.lindex integer_type_widths ~array_exp:src ~index_exp:len ~last_included:true
-            mem location cond_set )
+            mem location cond_set)
     in
     {exec; check}
 
@@ -883,7 +884,7 @@ module AbstractCollection (Lang : Lang) = struct
     let exec env ~ret:((id, _) as ret) mem =
       let mem = new_collection.exec env ~ret mem in
       List.fold_left list ~init:mem ~f:(fun acc {exp= elem_exp} ->
-          (add id elem_exp).exec env ~ret acc )
+          (add id elem_exp).exec env ~ret acc)
     in
     {exec; check= no_check}
 
@@ -1127,7 +1128,7 @@ module NSCollection = struct
     let exec env ~ret:((id, _) as ret) mem =
       let mem = new_collection.exec env ~ret mem in
       List.fold_left list ~init:mem ~f:(fun acc {exp= elem_exp} ->
-          (add id elem_exp).exec env ~ret acc )
+          (add id elem_exp).exec env ~ret acc)
     in
     {exec; check= no_check}
 
@@ -1274,7 +1275,7 @@ module JavaString = struct
     let min_max =
       String.fold s ~init:None ~f:(fun acc c ->
           let i = Char.to_int c in
-          match acc with None -> Some (i, i) | Some (lb, ub) -> Some (min lb i, max ub i) )
+          match acc with None -> Some (i, i) | Some (lb, ub) -> Some (min lb i, max ub i))
     in
     match min_max with None -> Itv.bot | Some (min, max) -> Itv.(join (of_int min) (of_int max))
 
@@ -1576,7 +1577,7 @@ module File = struct
           |> Loc.get_path
           |> Option.value_map ~default:mem ~f:(fun path ->
                  let length = Itv.of_normal_path ~unsigned:true path in
-                 JavaClass.decl_array model_env ~ret length mem )
+                 JavaClass.decl_array model_env ~ret length mem)
       | Empty | More ->
           mem
     in
@@ -1664,7 +1665,9 @@ module Call = struct
       ; -"memcpy" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> memcpy
       ; -"memmove" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> memcpy
       ; -"memset" <>$ capt_exp $+ any_arg $+ capt_exp $!--> memset
-      ; -"realloc" <>$ capt_exp $+ capt_exp $+...$--> realloc
+        (*       ; -"realloc" <>$ capt_exp $+ capt_exp $+...$--> realloc *)
+        (* for API checker *)
+      ; -"realloc" <>$ any_arg $+ capt_exp $+...$--> malloc ~can_be_zero:false
       ; -"snprintf" <>--> by_value Dom.Val.Itv.nat
       ; -"strcat" <>$ capt_exp $+ capt_exp $+...$--> strcat
       ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy

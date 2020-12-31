@@ -93,6 +93,8 @@ let malloc size =
   {exec; check}
 
 
+let realloc _ size = malloc size
+
 let calloc n size =
   let malloc_size = Exp.BinOp (Binop.Mult (Some Typ.IUInt), n, size) in
   malloc malloc_size
@@ -335,6 +337,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"malloc" <>$ capt_exp $--> malloc
     ; -"g_malloc" <>$ capt_exp $--> malloc
     ; -"__new_array" <>$ capt_exp $--> malloc
+    ; -"realloc" <>$ capt_exp $+ capt_exp $+...$--> realloc
     ; -"calloc" <>$ capt_exp $+ capt_exp $+...$--> calloc
     ; -"printf" <>$ capt_exp $+...$--> printf
     ; -"sprintf" <>$ capt_exp $+ capt_exp $+...$--> sprintf
