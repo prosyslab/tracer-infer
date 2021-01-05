@@ -32,44 +32,7 @@ type analysis_data =
   ; get_formals: Procname.t -> (Pvar.t * Typ.t) list option
   ; all_proc: ProcAttributes.t list }
 
-let make_subst_traces p v location mem subst_traces s =
-  let sym_absloc = Allocsite.make_symbol p |> Loc.of_allocsite in
-  let sym_absloc_deref =
-    SPath.deref ~deref_kind:SPath.Deref_CPointer p |> Allocsite.make_symbol |> Loc.of_allocsite
-  in
-  let traces = Dom.Val.get_traces v in
-  TraceSet.fold
-    (fun trace set ->
-      match List.last trace with
-      | Some (Trace.SymbolDecl l) when Loc.equal l sym_absloc ->
-          TraceSet.fold
-            (fun t set ->
-              let t = Trace.concat [Trace.make_call location] t in
-              let t = Trace.concat trace t in
-              TraceSet.add t set)
-            traces set
-      | Some (Trace.SymbolDecl l) when Loc.equal l sym_absloc_deref ->
-          let deref_subst_val =
-            try Sem.Mem.find (Dom.PowLocWithIdx.min_elt (Dom.Val.get_powloc v)) mem
-            with _ -> Dom.Val.bottom
-          in
-          let traces = Dom.Val.get_traces deref_subst_val in
-          TraceSet.fold
-            (fun t set ->
-              let t = Trace.concat [Trace.make_call location] t in
-              let t = Trace.concat trace t in
-              TraceSet.add t set)
-            traces set
-      | _ ->
-          TraceSet.add trace set)
-    s TraceSet.empty
-  |> subst_traces
-
-
-let user_input_symbol_subst sym p exp typ_exp location bo_mem mem subst_user_input =
-  L.d_printfln_escaped "make subst user_input" ;
-  let sym_user_input = Dom.UserInput.make_symbol p in
-  let setsymbol_sym = Dom.UserInput.make_symbol sym in
+let symbol_subst sym p exp typ_exp location bo_mem mem not_found_v =
   let ({Dom.Val.powloc; _} as v) = Sem.eval exp location bo_mem mem in
   match sym with
   | BufferOverrunField.Prim (SPath.Deref (_, Prim (Deref (_, Prim (Deref (_, p2)))))) ->
@@ -84,16 +47,16 @@ let user_input_symbol_subst sym p exp typ_exp location bo_mem mem subst_user_inp
           powloc Dom.Val.bottom
       in
       L.(debug Analysis Quiet) "v: %a\n" Dom.Val.pp v ;
-      L.d_printfln_escaped "Path *** %a =? %a -> %a" Symb.SymbolPath.pp_partial sym Dom.UserInput.pp
-        sym_user_input Dom.Val.pp deref2_subst_val ;
+      L.d_printfln_escaped "Path *** %a =? %a -> %a" Symb.SymbolPath.pp_partial sym
+        Symb.SymbolPath.pp_partial p Dom.Val.pp deref2_subst_val ;
       L.(debug Analysis Quiet)
-        "Path *** %a =? %a -> %a\n" Symb.SymbolPath.pp_partial p2 Dom.UserInput.pp sym_user_input
+        "Path *** %a =? %a -> %a\n" Symb.SymbolPath.pp_partial p2 Symb.SymbolPath.pp_partial p
         Dom.Val.pp deref2_subst_val ;
-      if Dom.UserInput.equal (Dom.UserInput.make_symbol p2) sym_user_input then
+      if SPath.equal_partial p p2 then
         let _ = L.d_printfln_escaped "subst" in
         let _ = L.(debug Analysis Quiet) "subst\n" in
-        Dom.Val.get_user_input deref2_subst_val
-      else subst_user_input setsymbol_sym
+        deref2_subst_val
+      else not_found_v
   | BufferOverrunField.Prim (SPath.Deref (_, Prim (Deref (_, p2)))) ->
       let deref2_subst_val =
         Dom.PowLocWithIdx.fold
@@ -101,53 +64,78 @@ let user_input_symbol_subst sym p exp typ_exp location bo_mem mem subst_user_inp
           powloc Dom.Val.bottom
       in
       L.(debug Analysis Quiet) "v: %a\n" Dom.Val.pp v ;
-      L.d_printfln_escaped "Path ** %a =? %a -> %a" Symb.SymbolPath.pp_partial sym Dom.UserInput.pp
-        sym_user_input Dom.Val.pp deref2_subst_val ;
+      L.d_printfln_escaped "Path ** %a =? %a -> %a" Symb.SymbolPath.pp_partial sym
+        Symb.SymbolPath.pp_partial p Dom.Val.pp deref2_subst_val ;
       L.(debug Analysis Quiet)
-        "Path ** %a =? %a -> %a\n" Symb.SymbolPath.pp_partial p2 Dom.UserInput.pp sym_user_input
+        "Path ** %a =? %a -> %a\n" Symb.SymbolPath.pp_partial p2 Symb.SymbolPath.pp_partial p
         Dom.Val.pp deref2_subst_val ;
-      if Dom.UserInput.equal (Dom.UserInput.make_symbol p2) sym_user_input then
+      if SPath.equal_partial p p2 then
         let _ = L.d_printfln_escaped "subst" in
         let _ = L.(debug Analysis Quiet) "subst\n" in
-        Dom.Val.get_user_input deref2_subst_val
-      else subst_user_input setsymbol_sym
-  | BufferOverrunField.Prim (SPath.Deref (_, p)) ->
+        deref2_subst_val
+      else not_found_v
+  | BufferOverrunField.Prim (SPath.Deref (_, p2)) ->
       let deref_subst_val =
         Dom.PowLocWithIdx.fold
           (fun l v -> Dom.Mem.find_on_demand l mem |> Dom.Val.join v)
           (Dom.Val.get_powloc v) Dom.Val.bottom
       in
-      L.d_printfln_escaped "Path * %a =? %a -> %a" Symb.SymbolPath.pp_partial sym Dom.UserInput.pp
-        sym_user_input Dom.Val.pp v ;
+      L.d_printfln_escaped "Path * %a =? %a -> %a" Symb.SymbolPath.pp_partial sym
+        Symb.SymbolPath.pp_partial p Dom.Val.pp v ;
       L.(debug Analysis Quiet)
-        "Path * %a =? %a -> %a" Symb.SymbolPath.pp_partial sym Dom.UserInput.pp sym_user_input
+        "Path * %a =? %a -> %a" Symb.SymbolPath.pp_partial sym Symb.SymbolPath.pp_partial p
         Dom.Val.pp v ;
-      if Dom.UserInput.equal (Dom.UserInput.make_symbol p) sym_user_input then
+      if SPath.equal_partial p p2 then
         let _ = L.d_printfln_escaped "subst" in
-        subst_user_input (Dom.Val.get_user_input deref_subst_val)
-      else subst_user_input setsymbol_sym
+        deref_subst_val
+      else not_found_v
   | BufferOverrunField.Field {prefix; fn; typ} -> (
     match prefix with
     | BufferOverrunField.Prim (SPath.Deref (_, prefix_deref)) ->
-        let prefix_sym = Dom.UserInput.make_symbol prefix_deref in
-        if Dom.UserInput.equal prefix_sym sym_user_input then
+        if SPath.equal_partial p prefix_deref then
           let lfield_exp = Exp.Lfield (exp, fn, typ_exp) in
           let lfield_exp_powloc = Sem.eval_locs lfield_exp bo_mem mem in
-          let result =
-            Dom.PowLocWithIdx.fold
-              (fun l ui ->
-                Dom.Mem.find_on_demand ?typ l mem |> Dom.Val.get_user_input |> Dom.UserInput.join ui)
-              lfield_exp_powloc Dom.UserInput.bottom
-          in
-          subst_user_input result
-        else subst_user_input setsymbol_sym
+          Dom.PowLocWithIdx.fold
+            (fun l v -> Dom.Mem.find_on_demand ?typ l mem |> Dom.Val.join v)
+            lfield_exp_powloc Dom.Val.bottom
+        else not_found_v
     | _ ->
-        subst_user_input setsymbol_sym )
+        not_found_v )
   | _ ->
-      L.d_printfln_escaped "Path %a =? %a -> %a" Symb.SymbolPath.pp_partial sym Dom.UserInput.pp
-        sym_user_input Dom.Val.pp v ;
-      if Dom.UserInput.equal setsymbol_sym sym_user_input then Dom.Val.get_user_input v
-      else subst_user_input setsymbol_sym
+      L.d_printfln_escaped "Path %a =? %a -> %a" Symb.SymbolPath.pp_partial sym
+        Symb.SymbolPath.pp_partial p Dom.Val.pp v ;
+      if SPath.equal_partial sym p then v else not_found_v
+
+
+let make_subst_traces p exp typ_exp location bo_mem mem subst_traces s =
+  TraceSet.fold
+    (fun trace set ->
+      match List.last trace with
+      | Some (Trace.SymbolDecl l) -> (
+        match Loc.get_path l with
+        | Some sym ->
+            let substed_traces =
+              symbol_subst sym p exp typ_exp location bo_mem mem Dom.Val.bottom
+              |> Dom.Val.get_traces
+            in
+            TraceSet.fold
+              (fun t set ->
+                let t = Trace.concat [Trace.make_call location] t in
+                let t = Trace.concat trace t in
+                TraceSet.add t set)
+              substed_traces set
+        | _ ->
+            TraceSet.add trace set )
+      | _ ->
+          TraceSet.add trace set)
+    s TraceSet.empty
+  |> subst_traces
+
+
+let make_subst_user_input sym p exp typ_exp location bo_mem mem subst_user_input =
+  let sym_user_input_v = Dom.UserInput.make_symbol sym |> Dom.Val.of_user_input in
+  symbol_subst sym p exp typ_exp location bo_mem mem sym_user_input_v
+  |> Dom.Val.get_user_input |> subst_user_input
 
 
 let loc_of_symbol s = Allocsite.make_symbol s |> Loc.of_allocsite
@@ -215,12 +203,12 @@ let rec make_subst formals actuals location bo_mem mem
                 (fun elem s ->
                   ( match elem with
                   | Symbol sym ->
-                      user_input_symbol_subst sym p exp typ_exp location bo_mem mem subst_user_input
+                      make_subst_user_input sym p exp typ_exp location bo_mem mem subst_user_input
                   | _ ->
                       Dom.UserInput.make_elem elem )
                   |> Dom.UserInput.join s)
                 s Dom.UserInput.bottom)
-        ; subst_traces= make_subst_traces p v_exp location mem subst_traces }
+        ; subst_traces= make_subst_traces p exp typ_exp location bo_mem mem subst_traces }
         |> make_subst t1 t2 location bo_mem mem
     | _ ->
         subst )

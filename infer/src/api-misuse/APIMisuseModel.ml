@@ -160,7 +160,8 @@ let printf str =
         (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
         v_powloc Dom.Val.bottom
     in
-    Dom.CondSet.add (Dom.Cond.make_format user_input_val location) condset
+    let traces = Trace.Set.append (Trace.make_printf location) user_input_val.Dom.Val.traces in
+    Dom.CondSet.add (Dom.Cond.make_format {user_input_val with traces} location) condset
   in
   {exec= empty_exec_fun; check}
 
