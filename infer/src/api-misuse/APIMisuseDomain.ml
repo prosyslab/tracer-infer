@@ -162,7 +162,7 @@ module LocWithIdx = struct
         assert false
 
 
-  let append_field fn l = match l with Loc l -> Loc (Loc.append_field l fn) | _ -> l
+  let append_field ?typ fn l = match l with Loc l -> Loc (Loc.append_field ?typ l fn) | _ -> l
 
   let of_symbol p = Allocsite.make_symbol p |> Loc.of_allocsite |> of_loc
 
@@ -204,7 +204,7 @@ module PowLocWithIdx = struct
     fold (fun l s -> PowLoc.add (LocWithIdx.to_loc l) s) plocwithind PowLoc.bot
 
 
-  let append_field fn set = map (LocWithIdx.append_field fn) set
+  let append_field ?typ fn set = map (LocWithIdx.append_field ?typ fn) set
 end
 
 module IntOverflow = struct
@@ -320,20 +320,6 @@ module UserInput = struct
   let pp = Set.pp
 
   let make_elem e = Set.singleton e
-
-  let ref_symbols t =
-    Set.map
-      (fun elem ->
-        match elem with
-        | Symbol s -> (
-          match s with
-          | BufferOverrunField.Prim (SPath.Deref (_, s_ref)) ->
-              Symbol s_ref
-          | _ ->
-              elem )
-        | _ ->
-            elem)
-      t
 end
 
 module Subst = struct
@@ -425,12 +411,7 @@ module Val = struct
 
   let subst {Subst.subst_int_overflow; subst_user_input; subst_traces} v =
     { v with
-      powloc=
-        v.powloc
-        (* PowLocWithIdx.fold
-             (fun x s -> LocWithIdx.to_loc x |> subst_powloc |> PowLoc.join s)
-             v.powloc PowLoc.bot
-           |> PowLocWithIdx.of_pow_loc *)
+      powloc= v.powloc
     ; int_overflow= subst_int_overflow v.int_overflow
     ; user_input= subst_user_input v.user_input
     ; traces= subst_traces v.traces }

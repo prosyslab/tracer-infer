@@ -126,7 +126,7 @@ let user_input_symbol_subst sym p exp typ_exp location bo_mem mem subst_user_inp
         let _ = L.d_printfln_escaped "subst" in
         subst_user_input (Dom.Val.get_user_input deref_subst_val)
       else subst_user_input setsymbol_sym
-  | BufferOverrunField.Field {prefix; fn; _} -> (
+  | BufferOverrunField.Field {prefix; fn; typ} -> (
     match prefix with
     | BufferOverrunField.Prim (SPath.Deref (_, prefix_deref)) ->
         let prefix_sym = Dom.UserInput.make_symbol prefix_deref in
@@ -136,9 +136,8 @@ let user_input_symbol_subst sym p exp typ_exp location bo_mem mem subst_user_inp
           let result =
             Dom.PowLocWithIdx.fold
               (fun l ui ->
-                Dom.Mem.find_on_demand l mem |> Dom.Val.get_user_input |> Dom.UserInput.join ui)
+                Dom.Mem.find_on_demand ?typ l mem |> Dom.Val.get_user_input |> Dom.UserInput.join ui)
               lfield_exp_powloc Dom.UserInput.bottom
-            |> Dom.UserInput.ref_symbols
           in
           subst_user_input result
         else subst_user_input setsymbol_sym
