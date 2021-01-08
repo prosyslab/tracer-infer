@@ -529,6 +529,8 @@ module Cond = struct
         ; traces: TraceSet.t
         ; reported: bool }
     | Format of {user_input: UserInput.t; loc: Location.t; traces: TraceSet.t; reported: bool}
+    | BufferOverflow of
+        {user_input: UserInput.t; loc: Location.t; traces: TraceSet.t; reported: bool}
   [@@deriving compare]
 
   let make_uninit absloc init loc =
@@ -541,6 +543,10 @@ module Cond = struct
 
   let make_format {Val.user_input; traces} loc = Format {user_input; loc; traces; reported= false}
 
+  let make_buffer_overflow {Val.user_input; traces} loc =
+    BufferOverflow {user_input; loc; traces; reported= false}
+
+
   let reported = function
     | UnInit cond ->
         UnInit {cond with reported= true}
@@ -548,12 +554,14 @@ module Cond = struct
         Overflow {cond with reported= true}
     | Format cond ->
         Format {cond with reported= true}
+    | BufferOverflow cond ->
+        BufferOverflow {cond with reported= true}
 
 
   let is_symbolic = function
     | UnInit cond ->
         LocWithIdx.is_symbolic cond.absloc
-    | Overflow _ | Format _ ->
+    | Overflow _ | Format _ | BufferOverflow _ ->
         (* TODO *)
         false
 
@@ -565,6 +573,8 @@ module Cond = struct
         cond.loc
     | Format cond ->
         cond.loc
+    | BufferOverflow cond ->
+        cond.loc
 
 
   let is_reported = function
@@ -573,6 +583,8 @@ module Cond = struct
     | Overflow cond ->
         cond.reported
     | Format cond ->
+        cond.reported
+    | BufferOverflow cond ->
         cond.reported
 
 
@@ -590,6 +602,8 @@ module Cond = struct
         UserInput.is_taint cond.user_input
     | Format cond ->
         UserInput.is_taint cond.user_input
+    | BufferOverflow cond ->
+        UserInput.is_taint cond.user_input
     | _ ->
         false
 
@@ -600,6 +614,8 @@ module Cond = struct
       | Overflow cond ->
           cond.user_input
       | Format cond ->
+          cond.user_input
+      | BufferOverflow cond ->
           cond.user_input
       | _ ->
           UserInput.bottom
@@ -641,6 +657,9 @@ module Cond = struct
     | Format cond ->
         Format
           {cond with user_input= subst_user_input cond.user_input; traces= subst_traces cond.traces}
+    | BufferOverflow cond ->
+        BufferOverflow
+          {cond with user_input= subst_user_input cond.user_input; traces= subst_traces cond.traces}
 
 
   let pp fmt = function
@@ -650,6 +669,8 @@ module Cond = struct
     | Overflow cond ->
         F.fprintf fmt "{user_input: %a, loc: %a}" UserInput.pp cond.user_input Location.pp cond.loc
     | Format cond ->
+        F.fprintf fmt "{user_input: %a, loc: %a}" UserInput.pp cond.user_input Location.pp cond.loc
+    | BufferOverflow cond ->
         F.fprintf fmt "{user_input: %a, loc: %a}" UserInput.pp cond.user_input Location.pp cond.loc
 end
 

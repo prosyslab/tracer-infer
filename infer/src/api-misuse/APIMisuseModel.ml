@@ -166,9 +166,20 @@ let printf str =
   {exec= empty_exec_fun; check}
 
 
-let sprintf _ str = printf str
+let sprintf _ str args =
+  let printf_model = printf str in
+  let check env mem condset =
+    List.fold args
+      ~f:(fun cdset ProcnameDispatcher.Call.FuncArg.{exp} ->
+        let v = Sem.eval exp env.location env.bo_mem_opt mem in
+        Dom.CondSet.add (Dom.Cond.make_buffer_overflow v env.location) cdset)
+      ~init:condset
+    |> printf_model.check env mem
+  in
+  {exec= empty_exec_fun; check}
 
-let snprintf _ _ str = printf str
+
+let snprintf _ _ str args = sprintf Exp.null str args
 
 let infer_print exp =
   let exec {location; bo_mem_opt} ~ret:_ mem =
@@ -359,10 +370,10 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"realloc" <>$ capt_exp $+ capt_exp $+...$--> realloc
     ; -"calloc" <>$ capt_exp $+ capt_exp $+...$--> calloc
     ; -"printf" <>$ capt_exp $+...$--> printf
-    ; -"sprintf" <>$ capt_exp $+ capt_exp $+...$--> sprintf
-    ; -"snprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> snprintf
-    ; -"vsprintf" <>$ capt_exp $+ capt_exp $+...$--> sprintf
-    ; -"vsnprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> snprintf
+    ; -"sprintf" <>$ capt_exp $+ capt_exp $++$--> sprintf
+    ; -"snprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $++$--> snprintf
+    ; -"vsprintf" <>$ capt_exp $+ capt_exp $++$--> sprintf
+    ; -"vsnprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $++$--> snprintf
     ; -"_IO_getc" <>$ capt_exp $--> getc
     ; -"getenv" <>$ capt_exp $--> getenv
     ; -"fgetc" <>$ capt_exp $--> getc

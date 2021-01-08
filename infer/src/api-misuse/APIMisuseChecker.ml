@@ -523,6 +523,10 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
             let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
             report_src_sink_pair cond ~ltr_set "Format" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
+        | Dom.Cond.BufferOverflow c when Dom.Cond.is_user_input cond ->
+            let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
+            report_src_sink_pair cond ~ltr_set "BufferOverflow" ;
+            Dom.CondSet.add (Dom.Cond.reported cond) condset
         | _ ->
             Dom.CondSet.add cond condset)
     condset Dom.CondSet.empty
