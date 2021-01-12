@@ -681,17 +681,17 @@ module Cond = struct
 
   let pp fmt = function
     | UnInit cond ->
-        F.fprintf fmt "{absloc: %a, init: %a, loc: %a}" LocWithIdx.pp cond.absloc Init.pp cond.init
-          Location.pp cond.loc
+        F.fprintf fmt "{absloc: %a, init: %a, loc: %a, traces: %a}" LocWithIdx.pp cond.absloc
+          Init.pp cond.init Location.pp cond.loc TraceSet.pp cond.traces
     | Overflow cond ->
-        F.fprintf fmt "{user_input: %a, loc: %a}" UserInput.Elem.pp cond.user_input_elem Location.pp
-          cond.loc
+        F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
+          Location.pp cond.loc TraceSet.pp cond.traces
     | Format cond ->
-        F.fprintf fmt "{user_input: %a, loc: %a}" UserInput.Elem.pp cond.user_input_elem Location.pp
-          cond.loc
+        F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
+          Location.pp cond.loc TraceSet.pp cond.traces
     | BufferOverflow cond ->
-        F.fprintf fmt "{user_input: %a, loc: %a}" UserInput.Elem.pp cond.user_input_elem Location.pp
-          cond.loc
+        F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
+          Location.pp cond.loc TraceSet.pp cond.traces
 end
 
 module CondSet = struct

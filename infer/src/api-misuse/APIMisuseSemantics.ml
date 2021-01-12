@@ -76,11 +76,9 @@ and eval_binop bop e1 e2 loc bo_mem mem =
   let v1 = eval e1 loc bo_mem mem in
   let v2 = eval e2 loc bo_mem mem in
   let traces =
-    if TraceSet.is_empty v1.Val.traces |> not then
-      TraceSet.append (Trace.make_binop loc) v1.Val.traces
-    else if TraceSet.is_empty v2.Val.traces |> not then
-      TraceSet.append (Trace.make_binop loc) v2.Val.traces
-    else TraceSet.empty
+    let t1 = TraceSet.append (Trace.make_binop loc) v1.Val.traces in
+    let t2 = TraceSet.append (Trace.make_binop loc) v2.Val.traces in
+    TraceSet.join t1 t2
   in
   match bop with
   | Binop.Shiftlt | Binop.PlusA _ | Binop.Mult _ ->

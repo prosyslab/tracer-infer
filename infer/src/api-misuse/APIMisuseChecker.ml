@@ -286,9 +286,7 @@ module TransferFunctions = struct
         (Loc.of_pvar (Pvar.get_ret_pvar callee_pname) |> Dom.LocWithIdx.of_loc)
         callee_exit_mem
     in
-    L.d_printfln_escaped "\nret val1: %a" Dom.Val.pp ret_val ;
     let ret_val = ret_val |> Dom.Val.subst subst in
-    L.d_printfln_escaped "\nret val2: %a" Dom.Val.pp ret_val ;
     let rec add_val_rec var present_mem present_depth =
       if present_depth > 3 then present_mem
       else
