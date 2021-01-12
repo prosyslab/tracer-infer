@@ -1,4 +1,5 @@
 open! IStd
+open AbsLoc
 module F = Format
 
 module Trace = struct
@@ -24,6 +25,8 @@ module Trace = struct
   let make_symbol_decl l = SymbolDecl l
 
   let make_printf loc = Printf loc
+
+  let of_symbol s = SymbolDecl (Allocsite.make_symbol s |> Loc.of_allocsite)
 
   let append h t = h :: t
 

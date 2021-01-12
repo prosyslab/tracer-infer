@@ -458,8 +458,8 @@ module Mem = struct
           L.d_printfln_escaped "Val.on_demand for %a (%s)" LocWithIdx.pp loc (Typ.to_string typ) ;
           L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
           let loc = p |> Allocsite.make_symbol |> Loc.of_allocsite in
-          let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
           let deref_sym = p |> SPath.deref ~deref_kind:SPath.Deref_CPointer in
+          let traces = [Trace.of_symbol deref_sym] |> TraceSet.singleton in
           let powloc = LocWithIdx.of_symbol deref_sym |> PowLocWithIdx.singleton in
           L.d_printfln_escaped "Powloc: %a" PowLocWithIdx.pp powloc ;
           let deref2_sym = deref_sym |> SPath.deref ~deref_kind:SPath.Deref_CPointer in
