@@ -32,7 +32,7 @@ type analysis_data =
   ; get_formals: Procname.t -> (Pvar.t * Typ.t) list option
   ; all_proc: ProcAttributes.t list }
 
-let symbol_subst sym p exp typ_exp location bo_mem mem not_found_v =
+let symbol_subst sym p exp typ_exp location bo_mem mem =
   let ({Dom.Val.powloc; _} as v) = Sem.eval exp location bo_mem mem in
   match sym with
   | BufferOverrunField.Prim (SPath.Deref (_, Prim (Deref (_, Prim (Deref (_, p2)))))) ->
@@ -55,8 +55,8 @@ let symbol_subst sym p exp typ_exp location bo_mem mem not_found_v =
       if SPath.equal_partial p p2 then
         let _ = L.d_printfln_escaped "subst" in
         let _ = L.(debug Analysis Quiet) "subst\n" in
-        deref2_subst_val
-      else not_found_v
+        Some deref2_subst_val
+      else None
   | BufferOverrunField.Prim (SPath.Deref (_, Prim (Deref (_, p2)))) ->
       let deref2_subst_val =
         Dom.PowLocWithIdx.fold
@@ -72,8 +72,8 @@ let symbol_subst sym p exp typ_exp location bo_mem mem not_found_v =
       if SPath.equal_partial p p2 then
         let _ = L.d_printfln_escaped "subst" in
         let _ = L.(debug Analysis Quiet) "subst\n" in
-        deref2_subst_val
-      else not_found_v
+        Some deref2_subst_val
+      else None
   | BufferOverrunField.Prim (SPath.Deref (_, p2)) ->
       let deref_subst_val =
         Dom.PowLocWithIdx.fold
@@ -87,24 +87,25 @@ let symbol_subst sym p exp typ_exp location bo_mem mem not_found_v =
         Dom.Val.pp v ;
       if SPath.equal_partial p p2 then
         let _ = L.d_printfln_escaped "subst" in
-        deref_subst_val
-      else not_found_v
+        Some deref_subst_val
+      else None
   | BufferOverrunField.Field {prefix; fn; typ} -> (
     match prefix with
     | BufferOverrunField.Prim (SPath.Deref (_, prefix_deref)) ->
         if SPath.equal_partial p prefix_deref then
           let lfield_exp = Exp.Lfield (exp, fn, typ_exp) in
           let lfield_exp_powloc = Sem.eval_locs lfield_exp bo_mem mem in
-          Dom.PowLocWithIdx.fold
-            (fun l v -> Dom.Mem.find_on_demand ?typ l mem |> Dom.Val.join v)
-            lfield_exp_powloc Dom.Val.bottom
-        else not_found_v
+          Some
+            (Dom.PowLocWithIdx.fold
+               (fun l v -> Dom.Mem.find_on_demand ?typ l mem |> Dom.Val.join v)
+               lfield_exp_powloc Dom.Val.bottom)
+        else None
     | _ ->
-        not_found_v )
+        None )
   | _ ->
       L.d_printfln_escaped "Path %a =? %a -> %a" Symb.SymbolPath.pp_partial sym
         Symb.SymbolPath.pp_partial p Dom.Val.pp v ;
-      if SPath.equal_partial sym p then v else not_found_v
+      if SPath.equal_partial sym p then Some v else None
 
 
 let make_subst_traces p exp typ_exp location bo_mem mem subst_traces s =
@@ -113,17 +114,20 @@ let make_subst_traces p exp typ_exp location bo_mem mem subst_traces s =
       match List.last trace with
       | Some (Trace.SymbolDecl l) -> (
         match Loc.get_path l with
-        | Some sym ->
-            let substed_traces =
-              symbol_subst sym p exp typ_exp location bo_mem mem Dom.Val.bottom
-              |> Dom.Val.get_traces
-            in
-            TraceSet.fold
-              (fun t set ->
-                let t = Trace.concat [Trace.make_call location] t in
-                let t = Trace.concat trace t in
-                TraceSet.add t set)
-              substed_traces set
+        | Some sym -> (
+            L.d_printfln_escaped "make_subst_traces %a" Symb.SymbolPath.pp_partial sym ;
+            match symbol_subst sym p exp typ_exp location bo_mem mem with
+            | Some v ->
+                let substed_traces = Dom.Val.get_traces v in
+                L.d_printfln_escaped "traces set: %a\n" TraceSet.pp substed_traces ;
+                TraceSet.fold
+                  (fun t set ->
+                    let t = Trace.concat [Trace.make_call location] t in
+                    let t = Trace.concat trace t in
+                    TraceSet.add t set)
+                  substed_traces set
+            | _ ->
+                TraceSet.add trace set )
         | _ ->
             TraceSet.add trace set )
       | _ ->
@@ -132,10 +136,20 @@ let make_subst_traces p exp typ_exp location bo_mem mem subst_traces s =
   |> subst_traces
 
 
-let make_subst_user_input sym p exp typ_exp location bo_mem mem subst_user_input =
-  let sym_user_input_v = Dom.UserInput.make_symbol sym |> Dom.Val.of_user_input in
-  symbol_subst sym p exp typ_exp location bo_mem mem sym_user_input_v
-  |> Dom.Val.get_user_input |> subst_user_input
+let make_subst_user_input p exp typ_exp location bo_mem mem subst_user_input s =
+  Dom.UserInput.Set.fold
+    (fun elem s ->
+      match elem with
+      | Symbol sym -> (
+        match symbol_subst sym p exp typ_exp location bo_mem mem with
+        | Some v ->
+            Dom.Val.get_user_input v |> Dom.UserInput.join s
+        | None ->
+            Dom.UserInput.Set.add elem s )
+      | _ ->
+          Dom.UserInput.Set.add elem s)
+    s Dom.UserInput.bottom
+  |> subst_user_input
 
 
 let loc_of_symbol s = Allocsite.make_symbol s |> Loc.of_allocsite
@@ -197,17 +211,7 @@ let rec make_subst formals actuals location bo_mem mem
         L.d_printfln_escaped "make subst user input: %a" Dom.UserInput.pp user_input ;
         { Dom.Subst.subst_powloc= make_subst_powloc p exp location bo_mem mem subst_powloc
         ; subst_int_overflow= make_subst_int_overflow p exp location bo_mem mem subst_int_overflow
-        ; subst_user_input=
-            (fun s ->
-              Dom.UserInput.Set.fold
-                (fun elem s ->
-                  ( match elem with
-                  | Symbol sym ->
-                      make_subst_user_input sym p exp typ_exp location bo_mem mem subst_user_input
-                  | _ ->
-                      Dom.UserInput.make_elem elem )
-                  |> Dom.UserInput.join s)
-                s Dom.UserInput.bottom)
+        ; subst_user_input= make_subst_user_input p exp typ_exp location bo_mem mem subst_user_input
         ; subst_traces= make_subst_traces p exp typ_exp location bo_mem mem subst_traces }
         |> make_subst t1 t2 location bo_mem mem
     | _ ->
@@ -281,8 +285,10 @@ module TransferFunctions = struct
       Domain.find
         (Loc.of_pvar (Pvar.get_ret_pvar callee_pname) |> Dom.LocWithIdx.of_loc)
         callee_exit_mem
-      |> Dom.Val.subst subst
     in
+    L.d_printfln_escaped "\nret val1: %a" Dom.Val.pp ret_val ;
+    let ret_val = ret_val |> Dom.Val.subst subst in
+    L.d_printfln_escaped "\nret val2: %a" Dom.Val.pp ret_val ;
     let rec add_val_rec var present_mem present_depth =
       if present_depth > 3 then present_mem
       else
@@ -485,31 +491,27 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
       else
         let loc = Dom.Cond.get_location cond in
         let report_src_sink_pair cond ~ltr_set (bug_type : string) =
-          let user_input_set = Dom.Cond.extract_user_input cond in
-          Dom.UserInput.Set.iter
-            (fun elem ->
-              match elem with
-              | Source (_, src_loc) ->
-                  let src_loc' =
-                    Jsonbug_t.
-                      { file= SourceFile.to_string src_loc.file
-                      ; lnum= src_loc.line
-                      ; cnum= src_loc.col
-                      ; enum= 0 }
-                  in
-                  let extras =
-                    Jsonbug_t.
-                      { nullsafe_extra= None
-                      ; cost_polynomial= None
-                      ; cost_degree= None
-                      ; bug_src_loc= Some src_loc' }
-                  in
-                  let ltr_set = Trace.subset_match_src src_loc ltr_set in
-                  Reporting.log_issue proc_desc err_log ~loc ~ltr_set ~extras APIMisuse
-                    IssueType.api_misuse bug_type
-              | _ ->
-                  ())
-            user_input_set
+          match Dom.Cond.extract_user_input cond with
+          | Some (Source (_, src_loc)) ->
+              let src_loc' =
+                Jsonbug_t.
+                  { file= SourceFile.to_string src_loc.file
+                  ; lnum= src_loc.line
+                  ; cnum= src_loc.col
+                  ; enum= 0 }
+              in
+              let extras =
+                Jsonbug_t.
+                  { nullsafe_extra= None
+                  ; cost_polynomial= None
+                  ; cost_degree= None
+                  ; bug_src_loc= Some src_loc' }
+              in
+              let ltr_set = Trace.subset_match_src src_loc ltr_set in
+              Reporting.log_issue proc_desc err_log ~loc ~ltr_set ~extras APIMisuse
+                IssueType.api_misuse bug_type
+          | _ ->
+              ()
         in
         match cond with
         | Dom.Cond.UnInit _ when Dom.Cond.is_init cond |> not ->

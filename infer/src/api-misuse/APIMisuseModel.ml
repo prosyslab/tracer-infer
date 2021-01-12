@@ -106,7 +106,7 @@ let malloc size =
   let check {location; bo_mem_opt} mem condset =
     let v = Sem.eval size location bo_mem_opt mem in
     let traces = Trace.Set.append (Trace.make_malloc location) v.Dom.Val.traces in
-    Dom.CondSet.add (Dom.Cond.make_overflow {v with traces} location) condset
+    Dom.CondSet.union (Dom.CondSet.make_overflow {v with traces} location) condset
   in
   {exec; check}
 
@@ -161,7 +161,7 @@ let printf str =
         v_powloc Dom.Val.bottom
     in
     let traces = Trace.Set.append (Trace.make_printf location) user_input_val.Dom.Val.traces in
-    Dom.CondSet.add (Dom.Cond.make_format {user_input_val with traces} location) condset
+    Dom.CondSet.union (Dom.CondSet.make_format {user_input_val with traces} location) condset
   in
   {exec= empty_exec_fun; check}
 
@@ -172,7 +172,7 @@ let sprintf _ str args =
     List.fold args
       ~f:(fun cdset ProcnameDispatcher.Call.FuncArg.{exp} ->
         let v = Sem.eval exp env.location env.bo_mem_opt mem in
-        Dom.CondSet.add (Dom.Cond.make_buffer_overflow v env.location) cdset)
+        Dom.CondSet.union (Dom.CondSet.make_buffer_overflow v env.location) cdset)
       ~init:condset
     |> printf_model.check env mem
   in

@@ -268,19 +268,24 @@ module UserInput = struct
   module Source = struct
     type t = CFG.Node.t * Location.t
 
-    let compare x y = CFG.Node.compare_id (fst x |> CFG.Node.id) (fst y |> CFG.Node.id)
+    let compare x y =
+      let compare_node = CFG.Node.compare_id (fst x |> CFG.Node.id) (fst y |> CFG.Node.id) in
+      if equal_int compare_node 0 then Location.compare (snd x) (snd y) else compare_node
+
+
+    let equal (_, x) (_, y) = Location.equal x y
 
     let pp fmt (n, l) = F.fprintf fmt "%a @ %a" CFG.Node.pp_id (CFG.Node.id n) Location.pp l
   end
 
   module PrettyPrintableSymbol = struct
-    type t = Symb.SymbolPath.partial [@@deriving compare]
+    type t = Symb.SymbolPath.partial [@@deriving compare, equal]
 
     let pp fmt s = F.fprintf fmt "%a" Symb.SymbolPath.pp_partial s
   end
 
   module Elem = struct
-    type t = Source of Source.t | Symbol of PrettyPrintableSymbol.t [@@deriving compare]
+    type t = Source of Source.t | Symbol of PrettyPrintableSymbol.t [@@deriving compare, equal]
 
     let pp fmt e =
       match e with
@@ -313,13 +318,15 @@ module UserInput = struct
 
   let make node loc = Set.singleton (Source (node, loc))
 
-  let is_taint = Set.exists (fun e -> Elem.is_source e)
+  let is_taint = Set.exists Elem.is_source
 
   let make_symbol p = Set.singleton (Symbol p)
 
   let pp = Set.pp
 
   let make_elem e = Set.singleton e
+
+  let to_list s = Set.fold (fun elem l -> elem :: l) s []
 end
 
 module Subst = struct
@@ -524,27 +531,30 @@ module Cond = struct
         {absloc: LocWithIdx.t; init: Init.t; loc: Location.t; traces: TraceSet.t; reported: bool}
     | Overflow of
         { size: IntOverflow.t
-        ; user_input: UserInput.t
+        ; user_input_elem: UserInput.Elem.t
         ; loc: Location.t
         ; traces: TraceSet.t
         ; reported: bool }
-    | Format of {user_input: UserInput.t; loc: Location.t; traces: TraceSet.t; reported: bool}
+    | Format of
+        {user_input_elem: UserInput.Elem.t; loc: Location.t; traces: TraceSet.t; reported: bool}
     | BufferOverflow of
-        {user_input: UserInput.t; loc: Location.t; traces: TraceSet.t; reported: bool}
+        {user_input_elem: UserInput.Elem.t; loc: Location.t; traces: TraceSet.t; reported: bool}
   [@@deriving compare]
 
   let make_uninit absloc init loc =
     UnInit {absloc; init; loc; traces= TraceSet.empty; reported= false}
 
 
-  let make_overflow {Val.int_overflow; user_input; traces} loc =
-    Overflow {size= int_overflow; user_input; loc; traces; reported= false}
+  let make_overflow {Val.int_overflow; traces} user_input_elem loc =
+    Overflow {size= int_overflow; user_input_elem; loc; traces; reported= false}
 
 
-  let make_format {Val.user_input; traces} loc = Format {user_input; loc; traces; reported= false}
+  let make_format {Val.traces} user_input_elem loc =
+    Format {user_input_elem; loc; traces; reported= false}
 
-  let make_buffer_overflow {Val.user_input; traces} loc =
-    BufferOverflow {user_input; loc; traces; reported= false}
+
+  let make_buffer_overflow {Val.traces} user_input_elem loc =
+    BufferOverflow {user_input_elem; loc; traces; reported= false}
 
 
   let reported = function
@@ -592,35 +602,32 @@ module Cond = struct
 
   let may_overflow = function
     | Overflow cond ->
-        IntOverflow.is_top cond.size && UserInput.is_taint cond.user_input
+        IntOverflow.is_top cond.size && UserInput.Elem.is_source cond.user_input_elem
     | _ ->
         false
 
 
   let is_user_input = function
     | Overflow cond ->
-        UserInput.is_taint cond.user_input
+        UserInput.Elem.is_source cond.user_input_elem
     | Format cond ->
-        UserInput.is_taint cond.user_input
+        UserInput.Elem.is_source cond.user_input_elem
     | BufferOverflow cond ->
-        UserInput.is_taint cond.user_input
+        UserInput.Elem.is_source cond.user_input_elem
     | _ ->
         false
 
 
   let extract_user_input cond =
-    let user_input_v =
-      match cond with
-      | Overflow cond ->
-          cond.user_input
-      | Format cond ->
-          cond.user_input
-      | BufferOverflow cond ->
-          cond.user_input
-      | _ ->
-          UserInput.bottom
-    in
-    user_input_v
+    match cond with
+    | Overflow cond ->
+        Some cond.user_input_elem
+    | Format cond ->
+        Some cond.user_input_elem
+    | BufferOverflow cond ->
+        Some cond.user_input_elem
+    | _ ->
+        None
 
 
   let subst {Subst.subst_powloc; subst_int_overflow; subst_user_input; subst_traces} mem = function
@@ -628,38 +635,48 @@ module Cond = struct
       match cond.absloc with
       | Loc l -> (
           let evals = subst_powloc l in
-          if AbsLoc.PowLoc.is_bot evals then UnInit cond
+          if AbsLoc.PowLoc.is_bot evals then [UnInit cond]
           else
             match AbsLoc.PowLoc.min_elt_opt evals with
             | Some l ->
                 let absloc = LocWithIdx.of_loc l in
                 let init = Mem.find absloc mem |> Val.get_init in
-                UnInit {cond with absloc; init}
+                [UnInit {cond with absloc; init}]
             | None ->
-                UnInit cond )
+                [UnInit cond] )
       | Idx (l, i) -> (
           let evals = subst_powloc l in
-          if AbsLoc.PowLoc.is_bot evals then UnInit cond
+          if AbsLoc.PowLoc.is_bot evals then [UnInit cond]
           else
             match AbsLoc.PowLoc.min_elt_opt evals with
             | Some l ->
                 let absloc = LocWithIdx.of_idx l i in
                 let init = Mem.find absloc mem |> Val.get_init in
-                UnInit {cond with absloc; init}
+                [UnInit {cond with absloc; init}]
             | None ->
-                UnInit cond ) )
+                [UnInit cond] ) )
     | Overflow cond ->
-        Overflow
-          { cond with
-            size= subst_int_overflow cond.size
-          ; user_input= subst_user_input cond.user_input
-          ; traces= subst_traces cond.traces }
+        let substed_user_input_list =
+          UserInput.make_elem cond.user_input_elem |> subst_user_input |> UserInput.to_list
+        in
+        List.map substed_user_input_list ~f:(fun elem ->
+            Overflow
+              { cond with
+                size= subst_int_overflow cond.size
+              ; user_input_elem= elem
+              ; traces= subst_traces cond.traces })
     | Format cond ->
-        Format
-          {cond with user_input= subst_user_input cond.user_input; traces= subst_traces cond.traces}
+        let substed_user_input_list =
+          UserInput.make_elem cond.user_input_elem |> subst_user_input |> UserInput.to_list
+        in
+        List.map substed_user_input_list ~f:(fun elem ->
+            Format {cond with user_input_elem= elem; traces= subst_traces cond.traces})
     | BufferOverflow cond ->
-        BufferOverflow
-          {cond with user_input= subst_user_input cond.user_input; traces= subst_traces cond.traces}
+        let substed_user_input_list =
+          UserInput.make_elem cond.user_input_elem |> subst_user_input |> UserInput.to_list
+        in
+        List.map substed_user_input_list ~f:(fun elem ->
+            BufferOverflow {cond with user_input_elem= elem; traces= subst_traces cond.traces})
 
 
   let pp fmt = function
@@ -667,11 +684,14 @@ module Cond = struct
         F.fprintf fmt "{absloc: %a, init: %a, loc: %a}" LocWithIdx.pp cond.absloc Init.pp cond.init
           Location.pp cond.loc
     | Overflow cond ->
-        F.fprintf fmt "{user_input: %a, loc: %a}" UserInput.pp cond.user_input Location.pp cond.loc
+        F.fprintf fmt "{user_input: %a, loc: %a}" UserInput.Elem.pp cond.user_input_elem Location.pp
+          cond.loc
     | Format cond ->
-        F.fprintf fmt "{user_input: %a, loc: %a}" UserInput.pp cond.user_input Location.pp cond.loc
+        F.fprintf fmt "{user_input: %a, loc: %a}" UserInput.Elem.pp cond.user_input_elem Location.pp
+          cond.loc
     | BufferOverflow cond ->
-        F.fprintf fmt "{user_input: %a, loc: %a}" UserInput.pp cond.user_input Location.pp cond.loc
+        F.fprintf fmt "{user_input: %a, loc: %a}" UserInput.Elem.pp cond.user_input_elem Location.pp
+          cond.loc
 end
 
 module CondSet = struct
@@ -680,9 +700,27 @@ module CondSet = struct
   let subst eval_sym mem condset =
     fold
       (fun cond condset ->
-        let cond = Cond.subst eval_sym mem cond in
-        add cond condset)
+        let new_condset = Cond.subst eval_sym mem cond |> of_list in
+        union condset new_condset)
       condset empty
+
+
+  let make_overflow (v : Val.t) loc =
+    let user_input_list = UserInput.to_list v.user_input in
+    List.fold user_input_list ~init:bottom ~f:(fun cs user_input_elem ->
+        add (Cond.make_overflow v user_input_elem loc) cs)
+
+
+  let make_format (v : Val.t) loc =
+    let user_input_list = UserInput.to_list v.user_input in
+    List.fold user_input_list ~init:bottom ~f:(fun cs user_input_elem ->
+        add (Cond.make_format v user_input_elem loc) cs)
+
+
+  let make_buffer_overflow (v : Val.t) loc =
+    let user_input_list = UserInput.to_list v.user_input in
+    List.fold user_input_list ~init:bottom ~f:(fun cs user_input_elem ->
+        add (Cond.make_buffer_overflow v user_input_elem loc) cs)
 end
 
 module Summary = struct
