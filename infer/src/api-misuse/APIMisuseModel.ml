@@ -172,7 +172,14 @@ let sprintf _ str args =
     List.fold args
       ~f:(fun cdset ProcnameDispatcher.Call.FuncArg.{exp} ->
         let v = Sem.eval exp env.location env.bo_mem_opt mem in
-        Dom.CondSet.union (Dom.CondSet.make_buffer_overflow v env.location) cdset)
+        let v_powloc = v |> Dom.Val.get_powloc in
+        let deref_user_input_v =
+          Dom.PowLocWithIdx.fold
+            (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
+            v_powloc Dom.Val.bottom
+        in
+        Dom.CondSet.union (Dom.CondSet.make_buffer_overflow v env.location) cdset
+        |> Dom.CondSet.union (Dom.CondSet.make_buffer_overflow deref_user_input_v env.location))
       ~init:condset
     |> printf_model.check env mem
   in
@@ -180,6 +187,82 @@ let sprintf _ str args =
 
 
 let snprintf _ _ str args = sprintf Exp.null str args
+
+let gnutls_x509_crt_get_subject_alt_name _ _ ret_addr =
+  let exec {node; location; bo_mem_opt} ~ret:_ mem =
+    let locs = Sem.eval_locs ret_addr bo_mem_opt mem in
+    Dom.PowLocWithIdx.fold
+      (fun loc mem ->
+        let traces = [Trace.make_input location] |> Trace.Set.singleton in
+        let user_input_v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
+        let mem = Dom.Mem.add loc user_input_v mem in
+        let l = Dom.LocWithIdx.to_loc loc in
+        Dom.Mem.fold
+          (fun l' _ mem ->
+            match l' with
+            | Loc field when Loc.is_field_of ~loc:l ~field_loc:field ->
+                Dom.Mem.add l' user_input_v mem
+            | _ ->
+                mem)
+          mem mem)
+      locs mem
+  in
+  {exec; check= empty_check_fun}
+
+
+let readdir _ =
+  let exec {node; node_hash; location} ~ret mem =
+    let traces = [Trace.make_input location] |> Trace.Set.singleton in
+    let user_input_v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
+    let ret_id, _ = ret in
+    let ret_loc = ret_id |> Loc.of_id |> Dom.LocWithIdx.of_loc in
+    let new_allocsite =
+      Allocsite.make
+        (Procname.from_string_c_fun "readdir")
+        ~node_hash ~inst_num:0 ~dimension:1 ~path:None ~represents_multiple_values:false
+    in
+    let allocsite_loc = Loc.of_allocsite new_allocsite |> Dom.LocWithIdx.of_loc in
+    let ret_powloc = Dom.PowLocWithIdx.singleton allocsite_loc in
+    let d_name_field = Fieldname.make (Typ.Name.C.from_string "dirent") "d_name" in
+    let d_name_loc = Dom.LocWithIdx.append_field d_name_field allocsite_loc in
+    Dom.Mem.add ret_loc (Dom.Val.of_pow_loc ret_powloc) mem |> Dom.Mem.add d_name_loc user_input_v
+  in
+  {exec; check= empty_check_fun}
+
+
+let getopt _ _ _ =
+  let exec {node; node_hash; location} ~ret:_ mem =
+    let traces = [Trace.make_input location] |> Trace.Set.singleton in
+    let user_input_v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
+    let optarg_pvar = Pvar.mk_global (Mangled.from_string "optarg") in
+    let optarg_loc = Loc.of_pvar optarg_pvar |> Dom.LocWithIdx.of_loc in
+    let new_allocsite =
+      Allocsite.make
+        (Procname.from_string_c_fun "getopt")
+        ~node_hash ~inst_num:0 ~dimension:1 ~path:None ~represents_multiple_values:false
+    in
+    let alloc_loc = new_allocsite |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc in
+    let alloc_powloc = [alloc_loc] |> Dom.PowLocWithIdx.of_list in
+    Dom.Mem.add optarg_loc (Dom.Val.of_pow_loc alloc_powloc) mem
+    |> Dom.Mem.add alloc_loc user_input_v
+  in
+  {exec; check= empty_check_fun}
+
+
+let atoi str =
+  let exec {bo_mem_opt; location} ~ret mem =
+    let ret_id, ret_typ = ret in
+    let ret_loc = ret_id |> Loc.of_id |> Dom.LocWithIdx.of_loc in
+    let str_v = Sem.eval str location bo_mem_opt mem in
+    let ret_v =
+      Dom.PowLocWithIdx.fold
+        (fun l v -> Dom.Mem.find_on_demand ~typ:ret_typ l mem |> Dom.Val.join v)
+        (Dom.Val.get_powloc str_v) Dom.Val.bottom
+    in
+    Dom.Mem.add ret_loc ret_v mem
+  in
+  {exec; check= empty_check_fun}
+
 
 let infer_print exp =
   let exec {location; bo_mem_opt} ~ret:_ mem =
@@ -381,4 +464,9 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"strdup" <>$ capt_exp $--> strdup
     ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy
     ; -"memcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy
+    ; -"gnutls_x509_crt_get_subject_alt_name"
+      <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> gnutls_x509_crt_get_subject_alt_name
+    ; -"readdir" <>$ capt_exp $--> readdir
+    ; -"getopt" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> getopt
+    ; -"atoi" <>$ capt_exp $--> atoi
     ; -"__infer_print__" <>$ capt_exp $--> infer_print ]

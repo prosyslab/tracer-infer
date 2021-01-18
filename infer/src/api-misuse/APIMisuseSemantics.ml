@@ -64,9 +64,10 @@ and eval exp loc bo_mem mem =
   | Exp.Lindex (e1, _) ->
       eval e1 loc bo_mem mem
   | Exp.Lfield (e, fn, typ) ->
-      eval e loc bo_mem mem |> Dom.Val.get_powloc
-      |> Dom.PowLocWithIdx.append_field ~typ fn
-      |> Dom.Val.of_pow_loc
+      let powloc_field =
+        eval e loc bo_mem mem |> Dom.Val.get_powloc |> Dom.PowLocWithIdx.append_field ~typ fn
+      in
+      Dom.Val.of_pow_loc powloc_field
   | _ ->
       (* TODO *)
       Val.bottom
