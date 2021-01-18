@@ -5,20 +5,20 @@ module F = Format
 module Trace = struct
   type elem =
     | SymbolDecl of AbsLoc.Loc.t
-    | Input of Location.t
-    | BinOp of Location.t
-    | Call of Location.t
+    | Input of Procname.t * Location.t
+    | BinOp of Binop.t * Location.t
+    | Call of Procname.t * Location.t
     | Malloc of Location.t
     | Printf of Location.t
   [@@deriving compare]
 
   type t = elem list [@@deriving compare]
 
-  let make_input loc = Input loc
+  let make_input pname loc = Input (pname, loc)
 
-  let make_binop loc = BinOp loc
+  let make_binop binop loc = BinOp (binop, loc)
 
-  let make_call loc = Call loc
+  let make_call pname loc = Call (pname, loc)
 
   let make_malloc loc = Malloc loc
 
@@ -34,14 +34,14 @@ module Trace = struct
     match t with
     | [] ->
         tail
-    | Input l :: t ->
-        let desc = "input" in
+    | Input (pname, l) :: t ->
+        let desc = String.concat ~sep:" " ["input"; Procname.to_string pname] in
         Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace depth t
-    | BinOp l :: t ->
-        let desc = "binop" in
+    | BinOp (b, l) :: t ->
+        let desc = String.concat ~sep:" " ["binop"; Binop.str Pp.text b] in
         Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace depth t
-    | Call l :: t ->
-        let desc = "call" in
+    | Call (pname, l) :: t ->
+        let desc = String.concat ~sep:" " ["call"; Procname.to_string pname] in
         Errlog.make_trace_element (depth + 1) l desc [] :: tail |> make_err_trace depth t
     | Malloc l :: t ->
         let desc = "malloc" in
@@ -56,11 +56,11 @@ module Trace = struct
   let concat t1 t2 = t1 @ t2
 
   let pp_elem fmt = function
-    | Input l ->
+    | Input (_, l) ->
         F.fprintf fmt "Input (%a)" Location.pp l
-    | BinOp l ->
+    | BinOp (_, l) ->
         F.fprintf fmt "BinOp (%a)" Location.pp l
-    | Call l ->
+    | Call (_, l) ->
         F.fprintf fmt "Call (%a)" Location.pp l
     | Malloc l ->
         F.fprintf fmt "Malloc (%a)" Location.pp l

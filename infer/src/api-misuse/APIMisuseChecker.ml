@@ -108,7 +108,7 @@ let symbol_subst sym p exp typ_exp location bo_mem mem =
       if SPath.equal_partial sym p then Some v else None
 
 
-let make_subst_traces p exp typ_exp location bo_mem mem subst_traces s =
+let make_subst_traces callee_pname p exp typ_exp location bo_mem mem subst_traces s =
   TraceSet.fold
     (fun trace set ->
       match List.last trace with
@@ -122,7 +122,7 @@ let make_subst_traces p exp typ_exp location bo_mem mem subst_traces s =
                 L.d_printfln_escaped "traces set: %a\n" TraceSet.pp substed_traces ;
                 TraceSet.fold
                   (fun t set ->
-                    let t = Trace.concat [Trace.make_call location] t in
+                    let t = Trace.concat [Trace.make_call callee_pname location] t in
                     let t = Trace.concat trace t in
                     TraceSet.add t set)
                   substed_traces set
@@ -199,7 +199,7 @@ let make_subst_int_overflow p exp location bo_mem mem subst_int_overflow s =
       if Dom.IntOverflow.equal s sym_int_overflow then int_overflow else subst_int_overflow s
 
 
-let rec make_subst formals actuals location bo_mem mem
+let rec make_subst callee_pname formals actuals location bo_mem mem
     ({Dom.Subst.subst_powloc; subst_int_overflow; subst_user_input; subst_traces} as subst) =
   match (formals, actuals) with
   | (pvar, _) :: t1, (exp, typ_exp) :: t2 -> (
@@ -212,8 +212,9 @@ let rec make_subst formals actuals location bo_mem mem
         { Dom.Subst.subst_powloc= make_subst_powloc p exp location bo_mem mem subst_powloc
         ; subst_int_overflow= make_subst_int_overflow p exp location bo_mem mem subst_int_overflow
         ; subst_user_input= make_subst_user_input p exp typ_exp location bo_mem mem subst_user_input
-        ; subst_traces= make_subst_traces p exp typ_exp location bo_mem mem subst_traces }
-        |> make_subst t1 t2 location bo_mem mem
+        ; subst_traces=
+            make_subst_traces callee_pname p exp typ_exp location bo_mem mem subst_traces }
+        |> make_subst callee_pname t1 t2 location bo_mem mem
     | _ ->
         subst )
   | _, _ ->
@@ -344,7 +345,7 @@ module TransferFunctions = struct
 
   let instantiate_mem (ret_id, _) callee_formals callee_pname params location bo_mem mem
       callee_exit_mem =
-    let subst = make_subst callee_formals params location bo_mem mem Dom.Subst.empty in
+    let subst = make_subst callee_pname callee_formals params location bo_mem mem Dom.Subst.empty in
     instantiate_ret subst ret_id callee_pname callee_exit_mem mem
     |> instantiate_param subst callee_formals params bo_mem location callee_exit_mem
     |> instantiate_gb callee_exit_mem
@@ -433,7 +434,9 @@ let check_instr
   let user_call callee_pname params location =
     match (get_summary callee_pname, get_formals callee_pname) with
     | Some (Some api_summary, Some _), Some callee_formals ->
-        let eval_sym = make_subst callee_formals params location bo_mem_opt mem Dom.Subst.empty in
+        let eval_sym =
+          make_subst callee_pname callee_formals params location bo_mem_opt mem Dom.Subst.empty
+        in
         L.d_printfln_escaped "Callee summary %a" Dom.Summary.pp api_summary ;
         Dom.CondSet.subst eval_sym mem api_summary.Dom.Summary.condset |> Dom.CondSet.join condset
     | _ ->
@@ -580,7 +583,9 @@ let initialize_cmd_args start_node formals mem =
           |> SPath.deref ~deref_kind:SPath.Deref_CPointer
           |> Allocsite.make_symbol |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc
         in
-        let traces = [Trace.make_input location] |> TraceSet.singleton in
+        let traces =
+          [Trace.make_input (Procname.from_string_c_fun "main") location] |> TraceSet.singleton
+        in
         let v2 = Dom.UserInput.make start_node location |> Dom.Val.of_user_input ~traces in
         let deref_formal_loc1 =
           formal
