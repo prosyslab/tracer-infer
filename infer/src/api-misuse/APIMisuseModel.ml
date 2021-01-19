@@ -29,7 +29,7 @@ let empty = {exec= empty_exec_fun; check= empty_check_fun}
 
 let fread buffer =
   let exec {node; bo_mem_opt; location} ~ret:_ mem =
-    let locs = Sem.eval_locs buffer bo_mem_opt mem in
+    let locs = Sem.eval_locs buffer location bo_mem_opt mem in
     Dom.PowLocWithIdx.fold
       (fun loc mem ->
         let traces =
@@ -135,14 +135,14 @@ let strdup str =
 
 
 let strcpy dst src =
-  let exec {bo_mem_opt} ~ret:_ mem =
-    let src_locs = Sem.eval_locs src bo_mem_opt mem in
+  let exec {bo_mem_opt; location} ~ret:_ mem =
+    let src_locs = Sem.eval_locs src location bo_mem_opt mem in
     let src_deref_v =
       Dom.PowLocWithIdx.fold
         (fun loc v -> Dom.Mem.find loc mem |> Dom.Val.join v)
         src_locs Dom.Val.bottom
     in
-    let dst_locs = Sem.eval_locs dst bo_mem_opt mem in
+    let dst_locs = Sem.eval_locs dst location bo_mem_opt mem in
     Dom.PowLocWithIdx.fold (fun loc m -> Dom.Mem.add loc src_deref_v m) dst_locs mem
   in
   {exec; check= empty_check_fun}
@@ -196,7 +196,7 @@ let snprintf _ _ str args = sprintf Exp.null str args
 
 let gnutls_x509_crt_get_subject_alt_name _ _ ret_addr =
   let exec {node; location; bo_mem_opt} ~ret:_ mem =
-    let locs = Sem.eval_locs ret_addr bo_mem_opt mem in
+    let locs = Sem.eval_locs ret_addr location bo_mem_opt mem in
     Dom.PowLocWithIdx.fold
       (fun loc mem ->
         let traces =
@@ -380,10 +380,10 @@ end
 
 module BasicString = struct
   let constructor allocator s =
-    let exec {bo_mem_opt} ~ret:(id, _) mem =
+    let exec {bo_mem_opt; location} ~ret:(id, _) mem =
       match s with
       | Exp.Const (Const.Cstr s) ->
-          let allocator_locs = Sem.eval_locs allocator bo_mem_opt mem in
+          let allocator_locs = Sem.eval_locs allocator location bo_mem_opt mem in
           let loc = id |> Loc.of_id |> Dom.LocWithIdx.of_loc in
           let v = s |> Dom.Str.make |> Dom.Val.of_str in
           let mem = Dom.Mem.add loc v mem in
@@ -414,7 +414,7 @@ module BasicString = struct
 
   let assign lv rv =
     let exec {bo_mem_opt; location} ~ret:_ mem =
-      let locs = Sem.eval_locs lv bo_mem_opt mem in
+      let locs = Sem.eval_locs lv location bo_mem_opt mem in
       let v = Sem.eval rv location bo_mem_opt mem in
       Dom.PowLocWithIdx.fold (fun l mem -> Dom.Mem.add l v mem) locs mem
     in

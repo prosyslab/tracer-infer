@@ -287,8 +287,8 @@ let rec eval_locs : Exp.t -> Mem.t -> PowLoc.t =
       eval_locs e mem
   | BinOp _ | Closure _ | Const _ | Exn _ | Sizeof _ | UnOp _ ->
       PowLoc.bot
-  | Lfield (e, fn, _) ->
-      eval_locs e mem |> PowLoc.append_field ~fn
+  | Lfield (e, fn, typ) ->
+      eval_locs e mem |> PowLoc.append_field ~typ ~fn
   | Lindex (((Lfield _ | Lindex _) as e), _) ->
       Mem.find_set (eval_locs e mem) mem |> Val.get_all_locs
   | Lindex (e, _) ->
@@ -402,7 +402,7 @@ let rec eval_sympath_partial ~mode params p mem =
         let obj_path =
           Option.bind obj_path ~f:(fun obj_path ->
               eval_sympath_partial ~mode params obj_path mem
-              |> Val.get_pow_loc |> PowLoc.min_elt_opt |> Option.bind ~f:Loc.get_path )
+              |> Val.get_pow_loc |> PowLoc.min_elt_opt |> Option.bind ~f:Loc.get_path)
         in
         let p = Symb.SymbolPath.of_callsite ?obj_path ~ret_typ cs in
         Mem.find (Loc.of_allocsite (Allocsite.make_symbol p)) mem
@@ -467,7 +467,7 @@ let mk_eval_sym_trace ?(is_params_ref = false) integer_type_widths
             let this_actual = eval integer_type_widths this caller_mem in
             let actuals =
               List.map actual_exps ~f:(fun (a, _) ->
-                  Mem.find_set (eval_locs a caller_mem) caller_mem )
+                  Mem.find_set (eval_locs a caller_mem) caller_mem)
             in
             this_actual :: actuals
       else
@@ -476,7 +476,7 @@ let mk_eval_sym_trace ?(is_params_ref = false) integer_type_widths
             | Closure closure ->
                 FuncPtr.Set.of_closure closure |> Val.of_func_ptrs
             | _ ->
-                eval integer_type_widths a caller_mem )
+                eval integer_type_widths a caller_mem)
     in
     ParamBindings.make callee_formals actuals
   in
@@ -587,7 +587,7 @@ module Prune = struct
               Val.of_itv (Itv.of_normal_path ~unsigned:true linked_list_length)
               |> Val.prune_binop Le index_v
             in
-            update_mem_in_prune lv_linked_list_index pruned_v acc ) )
+            update_mem_in_prune lv_linked_list_index pruned_v acc))
 
 
   let prune_iterator_offset_objc next_object mem acc =
@@ -603,7 +603,7 @@ module Prune = struct
             in
             update_mem_in_prune iterator iterator_v' acc
         | _ ->
-            acc )
+            acc)
       tgts acc
 
 
@@ -618,7 +618,7 @@ module Prune = struct
                if Val.is_bot v then acc
                else
                  let v' = Val.prune_ne_zero v in
-                 update_mem_in_prune rhs v' acc )
+                 update_mem_in_prune rhs v' acc)
               |> prune_linked_list_index rhs mem
               |> prune_iterator_offset_objc rhs mem
           | AliasTarget.Empty ->
@@ -713,7 +713,7 @@ module Prune = struct
           else
             let v = val_prune_eq lhs rhs in
             let pruning_exp = make_pruning_exp ~lhs ~rhs in
-            update_mem_in_prune lv v ~pruning_exp acc )
+            update_mem_in_prune lv v ~pruning_exp acc)
     in
     gen_prune_alias_functions ~prune_alias_core
 
@@ -744,16 +744,16 @@ module Prune = struct
             | AliasTarget.Eq ->
                 let astate, size', pruning_exp = prune_target val_prune_eq astate in
                 Option.value_map java_tmp ~default:astate ~f:(fun java_tmp ->
-                    update_mem_in_prune java_tmp size' ~pruning_exp astate )
+                    update_mem_in_prune java_tmp size' ~pruning_exp astate)
             | AliasTarget.Le ->
                 let astate =
                   Option.value_map val_prune_le ~default:astate ~f:(fun val_prune_le ->
-                      prune_target val_prune_le astate |> fun (astate, _, _) -> astate )
+                      prune_target val_prune_le astate |> fun (astate, _, _) -> astate)
                 in
                 Option.value_map java_tmp ~default:astate ~f:(fun java_tmp ->
                     let v = val_prune_eq (Mem.find java_tmp mem) rhs in
                     let pruning_exp = make_pruning_exp ~lhs:v ~rhs in
-                    update_mem_in_prune java_tmp v ~pruning_exp astate ) )
+                    update_mem_in_prune java_tmp v ~pruning_exp astate))
     in
     gen_prune_alias_functions ~prune_alias_core
 

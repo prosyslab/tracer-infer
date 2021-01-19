@@ -22,7 +22,7 @@ type t =
 let mk pdesc =
   let formal_typs =
     List.fold (Procdesc.get_pvar_formals pdesc) ~init:FormalTyps.empty ~f:(fun acc (formal, typ) ->
-        FormalTyps.add formal typ acc )
+        FormalTyps.add formal typ acc)
   in
   fun tenv integer_type_widths ->
     let rec typ_of_param_path = function
@@ -53,7 +53,7 @@ let mk pdesc =
                 L.internal_error "Deref of non-array modeled type `%a`" Typ.Name.pp typename ;
                 None
             | None ->
-                L.(die InternalError) "Deref of unmodeled type `%a`" Typ.Name.pp typename )
+                None )
           | _ ->
               L.(die InternalError) "Untyped expression is given." ) )
       | BoField.Field {typ= Some _ as some_typ} ->
@@ -72,7 +72,7 @@ let mk pdesc =
     in
     let is_last_field fn (fields : Struct.field list) =
       Option.value_map (List.last fields) ~default:false ~f:(fun (last_fn, _, _) ->
-          Fieldname.equal fn last_fn )
+          Fieldname.equal fn last_fn)
     in
     let rec may_last_field = function
       | BoField.Prim (SPath.Pvar _ | SPath.Deref _ | SPath.Callsite _) ->
@@ -84,9 +84,9 @@ let mk pdesc =
                  | Tstruct typename ->
                      let opt_struct = Tenv.lookup tenv typename in
                      Option.value_map opt_struct ~default:false ~f:(fun str ->
-                         is_last_field fn str.Struct.fields )
+                         is_last_field fn str.Struct.fields)
                  | _ ->
-                     true )
+                     true)
     in
     let entry_location = Procdesc.Node.get_loc (Procdesc.get_start_node pdesc) in
     let class_name = Procname.get_class_type_name (Procdesc.get_proc_name pdesc) in

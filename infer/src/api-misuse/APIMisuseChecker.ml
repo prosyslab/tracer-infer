@@ -94,7 +94,7 @@ let symbol_subst sym p exp typ_exp location bo_mem mem =
     | BufferOverrunField.Prim (SPath.Deref (_, prefix_deref)) ->
         if SPath.equal_partial p prefix_deref then
           let lfield_exp = Exp.Lfield (exp, fn, typ_exp) in
-          let lfield_exp_powloc = Sem.eval_locs lfield_exp bo_mem mem in
+          let lfield_exp_powloc = Sem.eval_locs lfield_exp location bo_mem mem in
           Some
             (Dom.PowLocWithIdx.fold
                (fun l v -> Dom.Mem.find_on_demand ?typ l mem |> Dom.Val.join v)
@@ -170,33 +170,17 @@ let make_subst_powloc p exp location bo_mem mem subst_powloc s =
   else subst_powloc s
 
 
-let make_subst_int_overflow p exp location bo_mem mem subst_int_overflow s =
-  let {Dom.Val.int_overflow; _} = Sem.eval exp location bo_mem mem in
-  match s with
-  | Dom.IntOverflow.Symbol (BufferOverrunField.Prim (SPath.Deref (_, Prim (Deref (_, p))))) ->
-      let sym_int_overflow =
-        SPath.deref ~deref_kind:SPath.Deref_CPointer p
-        |> SPath.deref ~deref_kind:SPath.Deref_CPointer
-        |> Dom.IntOverflow.make_symbol
-      in
-      L.d_printfln_escaped "make subst int_overflow **" ;
-      L.d_printfln_escaped "%a =? %a -> %a" Dom.IntOverflow.pp s Dom.IntOverflow.pp sym_int_overflow
-        Dom.IntOverflow.pp int_overflow ;
-      if Dom.IntOverflow.equal s sym_int_overflow then int_overflow else subst_int_overflow s
-  | Dom.IntOverflow.Symbol (BufferOverrunField.Prim (SPath.Deref (_, p))) ->
-      let sym_int_overflow =
-        SPath.deref ~deref_kind:SPath.Deref_CPointer p |> Dom.IntOverflow.make_symbol
-      in
-      L.d_printfln_escaped "make subst int_overflow *" ;
-      L.d_printfln_escaped "%a =? %a -> %a" Dom.IntOverflow.pp s Dom.IntOverflow.pp sym_int_overflow
-        Dom.IntOverflow.pp int_overflow ;
-      if Dom.IntOverflow.equal s sym_int_overflow then int_overflow else subst_int_overflow s
+let make_subst_int_overflow p exp typ_exp location bo_mem mem subst_int_overflow s =
+  ( match s with
+  | Dom.IntOverflow.Symbol sym -> (
+    match symbol_subst sym p exp typ_exp location bo_mem mem with
+    | Some v ->
+        Dom.Val.get_int_overflow v
+    | None ->
+        s )
   | _ ->
-      let sym_int_overflow = Dom.IntOverflow.make_symbol p in
-      L.d_printfln_escaped "make subst int_overflow" ;
-      L.d_printfln_escaped "%a =? %a -> %a" Dom.IntOverflow.pp s Dom.IntOverflow.pp sym_int_overflow
-        Dom.IntOverflow.pp int_overflow ;
-      if Dom.IntOverflow.equal s sym_int_overflow then int_overflow else subst_int_overflow s
+      s )
+  |> subst_int_overflow
 
 
 let rec make_subst callee_pname formals actuals location bo_mem mem
@@ -210,7 +194,8 @@ let rec make_subst callee_pname formals actuals location bo_mem mem
         L.d_printfln_escaped "make subst int overflow: %a" Dom.IntOverflow.pp int_overflow ;
         L.d_printfln_escaped "make subst user input: %a" Dom.UserInput.pp user_input ;
         { Dom.Subst.subst_powloc= make_subst_powloc p exp location bo_mem mem subst_powloc
-        ; subst_int_overflow= make_subst_int_overflow p exp location bo_mem mem subst_int_overflow
+        ; subst_int_overflow=
+            make_subst_int_overflow p exp typ_exp location bo_mem mem subst_int_overflow
         ; subst_user_input= make_subst_user_input p exp typ_exp location bo_mem mem subst_user_input
         ; subst_traces=
             make_subst_traces callee_pname p exp typ_exp location bo_mem mem subst_traces }
@@ -371,11 +356,12 @@ module TransferFunctions = struct
             "Unknown call to: %a from %a\n" Procname.pp callee_pname Procname.pp caller_pname ;
           mem
     in
+    let location = CFG.Node.loc node in
     match instr with
-    | Load {id; e; typ; loc} ->
+    | Load {id; e; typ; _} ->
         (* id is a pure variable. id itself is a valid loc *)
         let id_loc = Loc.of_id id |> Dom.LocWithIdx.of_loc in
-        let locs = Sem.eval e loc bo_mem_opt mem |> Dom.Val.get_powloc in
+        let locs = Sem.eval_locs e location bo_mem_opt mem in
         let v, mem =
           Dom.PowLocWithIdx.fold
             (fun l (v, mem) ->
@@ -388,8 +374,8 @@ module TransferFunctions = struct
         mem
     | Store {e1; e2} ->
         (* e1 can be either PVar or LVar. *)
-        let locs1 = Sem.eval_locs e1 bo_mem_opt mem in
-        let v = Sem.eval e2 (CFG.Node.loc node) bo_mem_opt mem in
+        let locs1 = Sem.eval_locs e1 location bo_mem_opt mem in
+        let v = Sem.eval e2 location bo_mem_opt mem in
         let update_func =
           match e1 with Exp.Lindex (_, _) -> Dom.Mem.weak_update | _ -> Dom.Mem.add
         in
@@ -445,7 +431,7 @@ let check_instr
   match instr with
   | Sil.Load {e; loc} ->
       let locs =
-        Sem.eval_locs e bo_mem_opt mem
+        Sem.eval_locs e loc bo_mem_opt mem
         |> Dom.PowLocWithIdx.filter (function Dom.LocWithIdx.Idx (_, _) -> true | _ -> false)
       in
       if Dom.PowLocWithIdx.is_empty locs then condset

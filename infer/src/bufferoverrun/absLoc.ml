@@ -53,7 +53,7 @@ module Allocsite = struct
     | Known {proc_name; node_hash; inst_num; dimension; path} ->
         F.fprintf fmt "%s-%d-%d-%d" proc_name node_hash inst_num dimension ;
         Option.iter path ~f:(fun path ->
-            F.fprintf fmt "(%a)" (Symb.SymbolPath.pp_partial_paren ~paren:false) path )
+            F.fprintf fmt "(%a)" (Symb.SymbolPath.pp_partial_paren ~paren:false) path)
     | LiteralString s ->
         F.fprintf fmt "%S" s
 
@@ -572,7 +572,7 @@ module PowLoc = struct
         mk_known (LocSet.fold (fun l -> LocSet.add (Loc.get_parent_field l)) ploc LocSet.empty)
 
 
-  let append_field ploc ~fn =
+  let append_field ?typ ploc ~fn =
     match ploc with
     | Bottom ->
         (* Return the unknown location to avoid unintended unreachable nodes *)
@@ -580,7 +580,7 @@ module PowLoc = struct
     | Unknown ->
         Unknown
     | Known ploc ->
-        mk_known (LocSet.fold (fun l -> LocSet.add (Loc.append_field l fn)) ploc LocSet.empty)
+        mk_known (LocSet.fold (fun l -> LocSet.add (Loc.append_field ?typ l fn)) ploc LocSet.empty)
 
 
   let append_star_field ploc ~fn =
