@@ -405,6 +405,8 @@ module TransferFunctions = struct
             let callee_pname = ProcAttributes.get_proc_name att in
             user_call ret callee_pname params location |> APIMisuseDomain.Mem.join mem)
           ~init:mem
+    | Metadata (ExitScope (dead_vars, _)) ->
+        Dom.Mem.remove_temps (List.filter_map dead_vars ~f:Var.get_ident) mem
     | _ ->
         mem
 

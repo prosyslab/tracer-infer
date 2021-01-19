@@ -523,6 +523,12 @@ module Mem = struct
   let weak_update k v m =
     let joined_v = find k m |> Val.join v in
     add k joined_v m
+
+
+  let remove_temps vars m =
+    List.fold_left vars ~init:m ~f:(fun m var ->
+        let k = Loc.of_id var |> LocWithIdx.of_loc in
+        remove k m)
 end
 
 module Cond = struct
