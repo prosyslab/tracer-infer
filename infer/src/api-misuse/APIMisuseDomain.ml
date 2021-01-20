@@ -310,7 +310,7 @@ module UserInput = struct
 
   let is_symbol = Set.exists (fun e -> Elem.is_symbol e)
 
-  let join x y = Set.union x y
+  let join x y = if Set.cardinal x + Set.cardinal y > 50 then x else Set.union x y
 
   let widen ~prev ~next ~num_iters:_ = join prev next
 
@@ -354,7 +354,7 @@ module Val = struct
     ; int_overflow: IntOverflow.t
     ; user_input: UserInput.t
     ; str: Str.t
-    ; traces: TraceSet.t }
+    ; traces: (TraceSet.t[@compare.ignore]) }
   [@@deriving compare]
 
   let bottom =
@@ -534,17 +534,27 @@ end
 module Cond = struct
   type t =
     | UnInit of
-        {absloc: LocWithIdx.t; init: Init.t; loc: Location.t; traces: TraceSet.t; reported: bool}
+        { absloc: LocWithIdx.t
+        ; init: Init.t
+        ; loc: Location.t
+        ; traces: (TraceSet.t[@compare.ignore])
+        ; reported: bool }
     | Overflow of
         { size: IntOverflow.t
         ; user_input_elem: UserInput.Elem.t
         ; loc: Location.t
-        ; traces: TraceSet.t
+        ; traces: (TraceSet.t[@compare.ignore])
         ; reported: bool }
     | Format of
-        {user_input_elem: UserInput.Elem.t; loc: Location.t; traces: TraceSet.t; reported: bool}
+        { user_input_elem: UserInput.Elem.t
+        ; loc: Location.t
+        ; traces: (TraceSet.t[@compare.ignore])
+        ; reported: bool }
     | BufferOverflow of
-        {user_input_elem: UserInput.Elem.t; loc: Location.t; traces: TraceSet.t; reported: bool}
+        { user_input_elem: UserInput.Elem.t
+        ; loc: Location.t
+        ; traces: (TraceSet.t[@compare.ignore])
+        ; reported: bool }
   [@@deriving compare]
 
   let make_uninit absloc init loc =
