@@ -113,9 +113,11 @@ let malloc size =
         mem
   in
   let check {location; bo_mem_opt} mem condset =
-    let v = Sem.eval size location bo_mem_opt mem in
-    let traces = Trace.Set.append (Trace.make_malloc location) v.Dom.Val.traces in
-    Dom.CondSet.union (Dom.CondSet.make_overflow {v with traces} location) condset
+    let v =
+      Sem.eval size location bo_mem_opt mem
+      |> Dom.Val.append_trace_elem (Trace.make_malloc location)
+    in
+    Dom.CondSet.union (Dom.CondSet.make_overflow v location) condset
   in
   {exec; check}
 
@@ -168,9 +170,9 @@ let printf str =
       Dom.PowLocWithIdx.fold
         (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
         v_powloc Dom.Val.bottom
+      |> Dom.Val.append_trace_elem (Trace.make_printf location)
     in
-    let traces = Trace.Set.append (Trace.make_printf location) user_input_val.Dom.Val.traces in
-    Dom.CondSet.union (Dom.CondSet.make_format {user_input_val with traces} location) condset
+    Dom.CondSet.union (Dom.CondSet.make_format user_input_val location) condset
   in
   {exec= empty_exec_fun; check}
 
@@ -178,14 +180,19 @@ let printf str =
 let sprintf _ str args =
   let printf_model = printf str in
   let check env mem condset =
+    let sprintf_trace_elem = Trace.make_spritnf env.location in
     List.fold args
       ~f:(fun cdset ProcnameDispatcher.Call.FuncArg.{exp} ->
-        let v = Sem.eval exp env.location env.bo_mem_opt mem in
+        let v =
+          Sem.eval exp env.location env.bo_mem_opt mem
+          |> Dom.Val.append_trace_elem sprintf_trace_elem
+        in
         let v_powloc = v |> Dom.Val.get_powloc in
         let deref_user_input_v =
           Dom.PowLocWithIdx.fold
             (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
             v_powloc Dom.Val.bottom
+          |> Dom.Val.append_trace_elem sprintf_trace_elem
         in
         Dom.CondSet.union (Dom.CondSet.make_buffer_overflow v env.location) cdset
         |> Dom.CondSet.union (Dom.CondSet.make_buffer_overflow deref_user_input_v env.location))

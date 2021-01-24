@@ -390,6 +390,11 @@ module Val = struct
 
   let get_str v = v.str
 
+  let append_trace_elem elem v =
+    let new_traces = TraceSet.append elem v.traces in
+    {v with traces= new_traces}
+
+
   let join lhs rhs =
     { powloc= PowLocWithIdx.join lhs.powloc rhs.powloc
     ; init= Init.join lhs.init rhs.init

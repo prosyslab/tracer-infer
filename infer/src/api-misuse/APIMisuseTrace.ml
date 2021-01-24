@@ -10,6 +10,7 @@ module Trace = struct
     | Call of Procname.t * Location.t
     | Malloc of Location.t
     | Printf of Location.t
+    | Sprintf of Location.t
   [@@deriving compare]
 
   type t = elem list [@@deriving compare]
@@ -31,6 +32,8 @@ module Trace = struct
   let make_symbol_decl l = SymbolDecl l
 
   let make_printf loc = Printf loc
+
+  let make_spritnf loc = Sprintf loc
 
   let of_symbol s = SymbolDecl (Allocsite.make_symbol s |> Loc.of_allocsite)
 
@@ -54,6 +57,9 @@ module Trace = struct
       | Printf l :: t ->
           let desc = "printf" in
           Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
+      | Sprintf l :: t ->
+          let desc = "sprintf" in
+          Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
       | SymbolDecl _ :: t ->
           make_err_trace_rec depth t tail
     in
@@ -73,6 +79,8 @@ module Trace = struct
         F.fprintf fmt "Malloc (%a)" Location.pp l
     | Printf l ->
         F.fprintf fmt "Printf (%a)" Location.pp l
+    | Sprintf l ->
+        F.fprintf fmt "Sprintf (%a)" Location.pp l
     | SymbolDecl l ->
         F.fprintf fmt "Symbol (%a)" AbsLoc.Loc.pp l
 
