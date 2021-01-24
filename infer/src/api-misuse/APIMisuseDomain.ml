@@ -310,7 +310,7 @@ module UserInput = struct
 
   let is_symbol = Set.exists (fun e -> Elem.is_symbol e)
 
-  let join x y = if Set.cardinal x + Set.cardinal y > 50 then x else Set.union x y
+  let join x y = Set.union x y
 
   let widen ~prev ~next ~num_iters:_ = join prev next
 
@@ -427,7 +427,7 @@ module Val = struct
   let symbol p =
     let loc = p |> Allocsite.make_symbol |> Loc.of_allocsite in
     let powloc = loc |> LocWithIdx.of_loc |> PowLocWithIdx.singleton in
-    let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
+    let traces = Trace.make_symbol_decl loc |> Trace.make_singleton |> TraceSet.singleton in
     let user_input = UserInput.make_symbol p in
     let int_overflow = IntOverflow.make_symbol p in
     {bottom with powloc; int_overflow; user_input; traces}
@@ -448,6 +448,10 @@ module Mem = struct
     let open Typ in
     let open Val in
     match LocWithIdx.to_loc loc |> Loc.get_path with
+    | Some (BufferOverrunField.Prim (SPath.Deref (_, Prim (Deref (_, Prim (Deref (_, _))))))) | None
+      ->
+        L.d_printfln_escaped "Path none" ;
+        (bottom, mem)
     | Some p -> (
       match typ with
       | Some {Typ.desc= Tptr ({desc= Tstruct (CppClass (name, _))}, _)}
@@ -495,9 +499,6 @@ module Mem = struct
             |> add (LocWithIdx.of_symbol deref_sym) (Val.symbol deref2_sym)
           in
           (Val.symbol deref_sym, mem) )
-    | None ->
-        L.d_printfln_escaped "Path none" ;
-        (bottom, mem)
 
 
   let find_var_or_symbol k m =

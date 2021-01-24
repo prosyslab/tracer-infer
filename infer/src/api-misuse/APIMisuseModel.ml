@@ -33,7 +33,8 @@ let fread buffer =
     Dom.PowLocWithIdx.fold
       (fun loc mem ->
         let traces =
-          [Trace.make_input (Procname.from_string_c_fun "fread") location] |> Trace.Set.singleton
+          Trace.make_input (Procname.from_string_c_fun "fread") location
+          |> Trace.make_singleton |> Trace.Set.singleton
         in
         let v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
         let mem = Dom.Mem.add loc v mem in
@@ -55,7 +56,8 @@ let getc _ =
   let exec {node; location} ~ret mem =
     let id, _ = ret in
     let traces =
-      [Trace.make_input (Procname.from_string_c_fun "getc") location] |> Trace.Set.singleton
+      Trace.make_input (Procname.from_string_c_fun "getc") location
+      |> Trace.make_singleton |> Trace.Set.singleton
     in
     let v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
     let loc = Dom.LocWithIdx.of_loc (Loc.of_id id) in
@@ -67,7 +69,8 @@ let getc _ =
 let getenv _ =
   let exec {node; node_hash; location} ~ret mem =
     let traces =
-      [Trace.make_input (Procname.from_string_c_fun "getenv") location] |> Trace.Set.singleton
+      Trace.make_input (Procname.from_string_c_fun "getenv") location
+      |> Trace.make_singleton |> Trace.Set.singleton
     in
     let user_input_v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
     let new_allocsite =
@@ -200,10 +203,10 @@ let gnutls_x509_crt_get_subject_alt_name _ _ ret_addr =
     Dom.PowLocWithIdx.fold
       (fun loc mem ->
         let traces =
-          [ Trace.make_input
-              (Procname.from_string_c_fun "gnutls_x509_crt_get_subject_alt_name")
-              location ]
-          |> Trace.Set.singleton
+          Trace.make_input
+            (Procname.from_string_c_fun "gnutls_x509_crt_get_subject_alt_name")
+            location
+          |> Trace.make_singleton |> Trace.Set.singleton
         in
         let user_input_v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
         let mem = Dom.Mem.add loc user_input_v mem in
@@ -224,7 +227,8 @@ let gnutls_x509_crt_get_subject_alt_name _ _ ret_addr =
 let readdir _ =
   let exec {node; node_hash; location} ~ret mem =
     let traces =
-      [Trace.make_input (Procname.from_string_c_fun "readdir") location] |> Trace.Set.singleton
+      Trace.make_input (Procname.from_string_c_fun "readdir") location
+      |> Trace.make_singleton |> Trace.Set.singleton
     in
     let user_input_v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
     let ret_id, _ = ret in
@@ -246,7 +250,8 @@ let readdir _ =
 let getopt _ _ _ =
   let exec {node; node_hash; location} ~ret:_ mem =
     let traces =
-      [Trace.make_input (Procname.from_string_c_fun "getopt") location] |> Trace.Set.singleton
+      Trace.make_input (Procname.from_string_c_fun "getopt") location
+      |> Trace.make_singleton |> Trace.Set.singleton
     in
     let user_input_v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
     let optarg_pvar = Pvar.mk_global (Mangled.from_string "optarg") in

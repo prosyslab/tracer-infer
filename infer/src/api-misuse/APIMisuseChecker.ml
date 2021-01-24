@@ -111,7 +111,7 @@ let symbol_subst sym p exp typ_exp location bo_mem mem =
 let make_subst_traces callee_pname p exp typ_exp location bo_mem mem subst_traces s =
   TraceSet.fold
     (fun trace set ->
-      match List.last trace with
+      match Trace.last_elem trace with
       | Some (Trace.SymbolDecl l) -> (
         match Loc.get_path l with
         | Some sym -> (
@@ -122,7 +122,9 @@ let make_subst_traces callee_pname p exp typ_exp location bo_mem mem subst_trace
                 L.d_printfln_escaped "traces set: %a\n" TraceSet.pp substed_traces ;
                 TraceSet.fold
                   (fun t set ->
-                    let t = Trace.concat [Trace.make_call callee_pname location] t in
+                    let t =
+                      Trace.concat (Trace.make_call callee_pname location |> Trace.make_singleton) t
+                    in
                     let t = Trace.concat trace t in
                     TraceSet.add t set)
                   substed_traces set
@@ -303,37 +305,11 @@ module TransferFunctions = struct
     Domain.weak_update ret_var ret_val new_mem
 
 
-  let instantiate_gb callee_exit_mem mem =
-    let rec add_val_rec var present_mem present_depth =
-      if present_depth > 3 then present_mem
-      else
-        let add_val = Domain.find var callee_exit_mem in
-        let add_val_powloc = Dom.Val.get_powloc add_val in
-        let new_mem =
-          Dom.PowLocWithIdx.fold
-            (fun l m -> Dom.Mem.join m (add_val_rec l m (present_depth + 1)))
-            add_val_powloc present_mem
-        in
-        Domain.weak_update var add_val new_mem
-    in
-    let gb_exit_mem =
-      Dom.Mem.filter
-        (fun loc _ -> Loc.exists_pvar ~f:Pvar.is_global (Dom.LocWithIdx.to_loc loc))
-        callee_exit_mem
-    in
-    Dom.Mem.fold
-      (fun loc v m ->
-        let v_powloc = Dom.Val.get_powloc v in
-        Dom.PowLocWithIdx.fold (fun l m -> add_val_rec l m 0) v_powloc m |> Dom.Mem.add loc v)
-      gb_exit_mem mem
-
-
   let instantiate_mem (ret_id, _) callee_formals callee_pname params location bo_mem mem
       callee_exit_mem =
     let subst = make_subst callee_pname callee_formals params location bo_mem mem Dom.Subst.empty in
     instantiate_ret subst ret_id callee_pname callee_exit_mem mem
     |> instantiate_param subst callee_formals params bo_mem location callee_exit_mem
-    |> instantiate_gb callee_exit_mem
 
 
   let exec_instr : Domain.t -> analysis_data -> CFG.Node.t -> Sil.instr -> Domain.t =
@@ -572,7 +548,8 @@ let initialize_cmd_args start_node formals mem =
           |> Allocsite.make_symbol |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc
         in
         let traces =
-          [Trace.make_input (Procname.from_string_c_fun "main") location] |> TraceSet.singleton
+          Trace.make_input (Procname.from_string_c_fun "main") location
+          |> Trace.make_singleton |> TraceSet.singleton
         in
         let v2 = Dom.UserInput.make start_node location |> Dom.Val.of_user_input ~traces in
         let deref_formal_loc1 =

@@ -14,6 +14,12 @@ module Trace = struct
 
   type t = elem list [@@deriving compare]
 
+  let append h t = h :: t
+
+  let concat t1 t2 = t1 @ t2
+
+  let make_singleton elem = [elem]
+
   let make_input pname loc = Input (pname, loc)
 
   let make_binop binop loc = BinOp (binop, loc)
@@ -28,32 +34,33 @@ module Trace = struct
 
   let of_symbol s = SymbolDecl (Allocsite.make_symbol s |> Loc.of_allocsite)
 
-  let append h t = h :: t
+  let make_err_trace t =
+    let rec make_err_trace_rec depth t tail =
+      match t with
+      | [] ->
+          tail
+      | Input (pname, l) :: t ->
+          let desc = String.concat ~sep:" " ["input"; Procname.to_string pname] in
+          Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
+      | BinOp (b, l) :: t ->
+          let desc = String.concat ~sep:" " ["binop"; Binop.str Pp.text b] in
+          Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
+      | Call (pname, l) :: t ->
+          let desc = String.concat ~sep:" " ["call"; Procname.to_string pname] in
+          Errlog.make_trace_element (depth + 1) l desc [] :: tail |> make_err_trace_rec depth t
+      | Malloc l :: t ->
+          let desc = "malloc" in
+          Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
+      | Printf l :: t ->
+          let desc = "printf" in
+          Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
+      | SymbolDecl _ :: t ->
+          make_err_trace_rec depth t tail
+    in
+    make_err_trace_rec 0 t []
 
-  let rec make_err_trace depth t tail =
-    match t with
-    | [] ->
-        tail
-    | Input (pname, l) :: t ->
-        let desc = String.concat ~sep:" " ["input"; Procname.to_string pname] in
-        Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace depth t
-    | BinOp (b, l) :: t ->
-        let desc = String.concat ~sep:" " ["binop"; Binop.str Pp.text b] in
-        Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace depth t
-    | Call (pname, l) :: t ->
-        let desc = String.concat ~sep:" " ["call"; Procname.to_string pname] in
-        Errlog.make_trace_element (depth + 1) l desc [] :: tail |> make_err_trace depth t
-    | Malloc l :: t ->
-        let desc = "malloc" in
-        Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace depth t
-    | Printf l :: t ->
-        let desc = "printf" in
-        Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace depth t
-    | SymbolDecl _ :: t ->
-        make_err_trace depth t tail
 
-
-  let concat t1 t2 = t1 @ t2
+  let last_elem t = List.last t
 
   let pp_elem fmt = function
     | Input (_, l) ->
@@ -70,9 +77,9 @@ module Trace = struct
         F.fprintf fmt "Symbol (%a)" AbsLoc.Loc.pp l
 
 
-  let pp fmt trace =
+  let pp fmt t =
     F.fprintf fmt "[" ;
-    List.iter ~f:(fun e -> F.fprintf fmt "%a, " pp_elem e) trace ;
+    List.iter ~f:(fun e -> F.fprintf fmt "%a, " pp_elem e) t ;
     F.fprintf fmt "]"
 end
 
@@ -94,7 +101,7 @@ module Set = struct
 
   let make_err_trace set =
     fold
-      (fun tr s -> Trace.make_err_trace 0 tr [] |> Fun.flip Errlog.LTRSet.add s)
+      (fun tr s -> Trace.make_err_trace tr |> Fun.flip Errlog.LTRSet.add s)
       set Errlog.LTRSet.empty
 end
 
