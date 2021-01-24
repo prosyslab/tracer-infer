@@ -244,10 +244,11 @@ module TransferFunctions = struct
                 L.d_printfln_escaped "\nInstantiate_param" ;
                 let param_val = Sem.eval exp location bo_mem mem in
                 let v =
-                  {v with traces= TraceSet.concat param_val.Dom.Val.traces v.Dom.Val.traces}
-                  |> Dom.Val.subst subst
+                  let substed_v = Dom.Val.subst subst v in
+                  {substed_v with traces= TraceSet.concat param_val.traces substed_v.traces}
                 in
                 L.d_printfln_escaped "Formal loc: %a" Dom.LocWithIdx.pp deref_formal_loc ;
+                L.d_printfln_escaped "Param Value: %a" Dom.Val.pp param_val ;
                 L.d_printfln_escaped "Value: %a" Dom.Val.pp v ;
                 L.d_printfln_escaped "Param Powloc %a" Dom.PowLocWithIdx.pp param_powloc ;
                 let param_var = Dom.Val.get_powloc param_val in
