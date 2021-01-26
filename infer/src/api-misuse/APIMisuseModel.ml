@@ -67,24 +67,24 @@ let getc _ =
 
 
 let getenv _ =
-  let exec {node; node_hash; location} ~ret mem =
+  let exec {node; bo_mem_opt; location} ~ret:(ret_id, _) mem =
     let traces =
       Trace.make_input (Procname.from_string_c_fun "getenv") location
       |> Trace.make_singleton |> Trace.Set.singleton
     in
     let user_input_v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
-    let new_allocsite =
-      Allocsite.make
-        (Procname.from_string_c_fun "getenv")
-        ~node_hash ~inst_num:0 ~dimension:1 ~path:None ~represents_multiple_values:false
+    let ret_loc = Loc.of_id ret_id in
+    let getenv_locs =
+      ( match bo_mem_opt with
+      | Some bo_mem ->
+          BufferOverrunDomain.Mem.find_stack ret_loc bo_mem.post
+          |> BufferOverrunDomain.Val.get_all_locs
+      | None ->
+          PowLoc.bot )
+      |> Dom.PowLocWithIdx.of_pow_loc
     in
-    let alloc_loc = new_allocsite |> Loc.of_allocsite |> Dom.LocWithIdx.of_loc in
-    let alloc_powloc = [alloc_loc] |> Dom.PowLocWithIdx.of_list in
-    let ret_id, _ = ret in
-    let ret_loc = Dom.LocWithIdx.of_loc (Loc.of_id ret_id) in
-    mem
-    |> Dom.Mem.add alloc_loc user_input_v
-    |> Dom.Mem.add ret_loc (Dom.Val.of_pow_loc alloc_powloc)
+    Dom.Mem.add (Dom.LocWithIdx.of_loc ret_loc) (Dom.Val.of_pow_loc getenv_locs) mem
+    |> Dom.PowLocWithIdx.fold (fun loc mem -> Dom.Mem.add loc user_input_v mem) getenv_locs
   in
   {exec; check= empty_check_fun}
 

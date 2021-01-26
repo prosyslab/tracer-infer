@@ -31,7 +31,7 @@ let bo_eval pvar bo_mem_opt mem =
       |> Dom.Val.of_pow_loc
 
 
-let rec eval_locs exp loc bo_mem mem =
+let rec eval_locs exp _ bo_mem mem =
   match exp with
   | Exp.Var id ->
       Var.of_id id |> AbsLoc.Loc.of_var |> Dom.LocWithIdx.of_loc |> Fun.flip Mem.find mem
@@ -40,10 +40,7 @@ let rec eval_locs exp loc bo_mem mem =
       (* In Inferbo, there are two kinds of Lvar, stack variable and heap variable. We follow the concept *)
       bo_eval_locs exp bo_mem
   | Exp.Lindex (_, _) | Exp.Lfield (_, _, _) ->
-      (* Mostly, from_bo is enough. But from_bo may miss abstract locations made by API-misuse-specific models such as getenv, readdir *)
-      let from_bo = bo_eval_locs exp bo_mem in
-      let from_api = eval exp loc bo_mem mem |> Dom.Val.get_powloc in
-      Dom.PowLocWithIdx.join from_bo from_api
+      bo_eval_locs exp bo_mem
   | _ ->
       Dom.PowLocWithIdx.empty
 

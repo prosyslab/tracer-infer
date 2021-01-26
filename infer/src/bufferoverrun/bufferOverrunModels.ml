@@ -261,6 +261,27 @@ let strcat dest_exp src_exp =
   {exec; check}
 
 
+let getenv _ =
+  let exec ({pname; node_hash; location} as model_env) ~ret:(id, _) mem =
+    let traces = Trace.Set.singleton location ArrayDeclaration in
+    let path =
+      Dom.Mem.find_simple_alias id mem
+      |> List.find_map ~f:(fun (rhs, i) -> if IntLit.iszero i then Loc.get_path rhs else None)
+    in
+    let offset, size = (Itv.zero, Itv.nat) in
+    let allocsite =
+      Allocsite.make pname ~node_hash ~inst_num:0 ~dimension:1 ~path
+        ~represents_multiple_values:false
+    in
+    let v = Dom.Val.of_c_array_alloc allocsite ~stride:None ~offset ~size ~traces in
+    mem
+    |> Dom.Mem.add_stack (Loc.of_id id) v
+    |> BoUtils.Exec.init_c_array_fields model_env path (Typ.mk (Typ.Tint Typ.IChar))
+         (Dom.Val.get_array_locs v)
+  in
+  {exec; check= no_check}
+
+
 (* for API checker
 let realloc src_exp size_exp =
   let exec ({location; tenv; integer_type_widths} as model_env) ~ret:(id, _) mem =
@@ -1673,6 +1694,7 @@ module Call = struct
       ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy
       ; -"strlen" <>$ capt_exp $!--> strlen
       ; -"strncpy" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> strncpy
+      ; -"getenv" <>$ capt_exp $+...$--> getenv
       ; -"strndup" <>$ capt_exp $+ capt_exp $+...$--> strndup
       ; -"vsnprintf" <>--> by_value Dom.Val.Itv.nat
       ; (* ObjC models *)
