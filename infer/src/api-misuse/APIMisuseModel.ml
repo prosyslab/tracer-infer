@@ -232,24 +232,37 @@ let gnutls_x509_crt_get_subject_alt_name _ _ ret_addr =
 
 
 let readdir _ =
-  let exec {node; node_hash; location} ~ret mem =
+  let exec {pname; node; node_hash; location} ~ret:(ret_id, _) mem =
     let traces =
       Trace.make_input (Procname.from_string_c_fun "readdir") location
       |> Trace.make_singleton |> Trace.Set.singleton
     in
     let user_input_v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
-    let ret_id, _ = ret in
     let ret_loc = ret_id |> Loc.of_id |> Dom.LocWithIdx.of_loc in
-    let new_allocsite =
-      Allocsite.make
-        (Procname.from_string_c_fun "readdir")
-        ~node_hash ~inst_num:0 ~dimension:1 ~path:None ~represents_multiple_values:false
+    let struct_allocsite =
+      Allocsite.make pname ~node_hash ~inst_num:0 ~dimension:1 ~path:None
+        ~represents_multiple_values:false
     in
-    let allocsite_loc = Loc.of_allocsite new_allocsite |> Dom.LocWithIdx.of_loc in
-    let ret_powloc = Dom.PowLocWithIdx.singleton allocsite_loc in
-    let d_name_field = Fieldname.make (Typ.Name.C.from_string "dirent") "d_name" in
-    let d_name_loc = Dom.LocWithIdx.append_field d_name_field allocsite_loc in
-    Dom.Mem.add ret_loc (Dom.Val.of_pow_loc ret_powloc) mem |> Dom.Mem.add d_name_loc user_input_v
+    let struct_loc = Loc.of_allocsite struct_allocsite |> Dom.LocWithIdx.of_loc in
+    let struct_powloc = Dom.PowLocWithIdx.singleton struct_loc in
+    let dirent_type_name =
+      if SourceFile.has_extension location.file ~ext:"c" then
+        Typ.Name.C.from_qual_name (QualifiedCppName.of_qual_string "dirent")
+      else if SourceFile.has_extension location.file ~ext:"cpp" then
+        Typ.Name.Cpp.from_qual_name Typ.NoTemplate (QualifiedCppName.of_qual_string "dirent")
+      else raise (Failure "readdir model file extension error")
+    in
+    let d_name_field = Fieldname.make dirent_type_name "d_name" in
+    let d_name_loc = Dom.LocWithIdx.append_field d_name_field struct_loc in
+    let d_name_allocsite =
+      Allocsite.make pname ~node_hash ~inst_num:1 ~dimension:1 ~path:None
+        ~represents_multiple_values:false
+    in
+    let d_name_allocsite_loc = Loc.of_allocsite d_name_allocsite |> Dom.LocWithIdx.of_loc in
+    let d_name_allocsite_powloc = Dom.PowLocWithIdx.singleton d_name_allocsite_loc in
+    Dom.Mem.add ret_loc (Dom.Val.of_pow_loc struct_powloc) mem
+    |> Dom.Mem.add d_name_loc (Dom.Val.of_pow_loc d_name_allocsite_powloc)
+    |> Dom.Mem.add d_name_allocsite_loc user_input_v
   in
   {exec; check= empty_check_fun}
 
