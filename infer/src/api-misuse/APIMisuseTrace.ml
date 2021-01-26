@@ -68,6 +68,20 @@ module Trace = struct
 
   let last_elem t = List.last t
 
+  let src_may_match src_loc tr =
+    match last_elem tr with
+    | Some tr_elem -> (
+      match tr_elem with
+      | SymbolDecl _ ->
+          true
+      | Input (_, input_loc) ->
+          Location.equal src_loc input_loc
+      | _ ->
+          false )
+    | None ->
+        false
+
+
   let pp_elem fmt = function
     | Input (_, l) ->
         F.fprintf fmt "Input (%a)" Location.pp l

@@ -730,19 +730,49 @@ module CondSet = struct
   let make_overflow (v : Val.t) loc =
     let user_input_list = UserInput.to_list v.user_input in
     List.fold user_input_list ~init:bottom ~f:(fun cs user_input_elem ->
-        add (Cond.make_overflow v user_input_elem loc) cs)
+        let traces =
+          TraceSet.filter
+            (fun tr ->
+              match user_input_elem with
+              | UserInput.Elem.Source (_, src_loc) ->
+                  Trace.src_may_match src_loc tr
+              | UserInput.Elem.Symbol _ ->
+                  true)
+            v.traces
+        in
+        add (Cond.make_overflow {v with traces} user_input_elem loc) cs)
 
 
   let make_format (v : Val.t) loc =
     let user_input_list = UserInput.to_list v.user_input in
     List.fold user_input_list ~init:bottom ~f:(fun cs user_input_elem ->
-        add (Cond.make_format v user_input_elem loc) cs)
+        let traces =
+          TraceSet.filter
+            (fun tr ->
+              match user_input_elem with
+              | UserInput.Elem.Source (_, src_loc) ->
+                  Trace.src_may_match src_loc tr
+              | UserInput.Elem.Symbol _ ->
+                  true)
+            v.traces
+        in
+        add (Cond.make_format {v with traces} user_input_elem loc) cs)
 
 
   let make_buffer_overflow (v : Val.t) loc =
     let user_input_list = UserInput.to_list v.user_input in
     List.fold user_input_list ~init:bottom ~f:(fun cs user_input_elem ->
-        add (Cond.make_buffer_overflow v user_input_elem loc) cs)
+        let traces =
+          TraceSet.filter
+            (fun tr ->
+              match user_input_elem with
+              | UserInput.Elem.Source (_, src_loc) ->
+                  Trace.src_may_match src_loc tr
+              | UserInput.Elem.Symbol _ ->
+                  true)
+            v.traces
+        in
+        add (Cond.make_buffer_overflow {v with traces} user_input_elem loc) cs)
 end
 
 module Summary = struct
