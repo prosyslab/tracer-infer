@@ -111,6 +111,8 @@ module Set = struct
   (* TODO: heuristic. *)
   let join x y = if cardinal x + cardinal y > 50 then x else join x y
 
+  let add tr t = if cardinal t >= 50 then t else add tr t
+
   let append h set = map (Trace.append h) set
 
   let concat set1 set2 =

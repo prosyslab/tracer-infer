@@ -307,7 +307,7 @@ let atoi str =
 let infer_print exp =
   let exec {location; bo_mem_opt} ~ret:_ mem =
     let v = Sem.eval exp location bo_mem_opt mem in
-    L.(debug Analysis Quiet)
+    L.(debug Analysis Verbose)
       "__infer_print__(%a) @@ %a: %a\n" Exp.pp exp Location.pp location Dom.Val.pp v ;
     mem
   in

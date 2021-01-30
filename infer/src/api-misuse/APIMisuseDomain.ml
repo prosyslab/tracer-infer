@@ -492,7 +492,7 @@ module Mem = struct
           let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
           ({bottom with int_overflow; user_input; traces}, mem)
       | None ->
-          L.(debug Analysis Quiet) "Unknown: %a\n" SPath.pp_partial p ;
+          L.(debug Analysis Verbose) "Unknown: %a\n" SPath.pp_partial p ;
           L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
           let loc = p |> Allocsite.make_symbol |> Loc.of_allocsite in
           let deref_sym = p |> SPath.deref ~deref_kind:SPath.Deref_CPointer in

@@ -46,15 +46,15 @@ let symbol_subst sym p exp typ_exp location bo_mem mem =
           (fun l v -> Dom.Mem.find l mem |> Dom.Val.join v)
           powloc Dom.Val.bottom
       in
-      L.(debug Analysis Quiet) "v: %a\n" Dom.Val.pp v ;
+      L.(debug Analysis Verbose) "v: %a\n" Dom.Val.pp v ;
       L.d_printfln_escaped "Path *** %a =? %a -> %a" Symb.SymbolPath.pp_partial sym
         Symb.SymbolPath.pp_partial p Dom.Val.pp deref2_subst_val ;
-      L.(debug Analysis Quiet)
+      L.(debug Analysis Verbose)
         "Path *** %a =? %a -> %a\n" Symb.SymbolPath.pp_partial p2 Symb.SymbolPath.pp_partial p
         Dom.Val.pp deref2_subst_val ;
       if SPath.equal_partial p p2 then
         let _ = L.d_printfln_escaped "subst" in
-        let _ = L.(debug Analysis Quiet) "subst\n" in
+        let _ = L.(debug Analysis Verbose) "subst\n" in
         Some deref2_subst_val
       else None
   | BufferOverrunField.Prim (SPath.Deref (_, Prim (Deref (_, p2)))) ->
@@ -63,15 +63,15 @@ let symbol_subst sym p exp typ_exp location bo_mem mem =
           (fun l v -> Dom.Mem.find l mem |> Dom.Val.join v)
           powloc Dom.Val.bottom
       in
-      L.(debug Analysis Quiet) "v: %a\n" Dom.Val.pp v ;
+      L.(debug Analysis Verbose) "v: %a\n" Dom.Val.pp v ;
       L.d_printfln_escaped "Path ** %a =? %a -> %a" Symb.SymbolPath.pp_partial sym
         Symb.SymbolPath.pp_partial p Dom.Val.pp deref2_subst_val ;
-      L.(debug Analysis Quiet)
+      L.(debug Analysis Verbose)
         "Path ** %a =? %a -> %a\n" Symb.SymbolPath.pp_partial p2 Symb.SymbolPath.pp_partial p
         Dom.Val.pp deref2_subst_val ;
       if SPath.equal_partial p p2 then
         let _ = L.d_printfln_escaped "subst" in
-        let _ = L.(debug Analysis Quiet) "subst\n" in
+        let _ = L.(debug Analysis Verbose) "subst\n" in
         Some deref2_subst_val
       else None
   | BufferOverrunField.Prim (SPath.Deref (_, p2)) ->
@@ -82,7 +82,7 @@ let symbol_subst sym p exp typ_exp location bo_mem mem =
       in
       L.d_printfln_escaped "Path * %a =? %a -> %a" Symb.SymbolPath.pp_partial sym
         Symb.SymbolPath.pp_partial p Dom.Val.pp v ;
-      L.(debug Analysis Quiet)
+      L.(debug Analysis Verbose)
         "Path * %a =? %a -> %a" Symb.SymbolPath.pp_partial sym Symb.SymbolPath.pp_partial p
         Dom.Val.pp v ;
       if SPath.equal_partial p p2 then
@@ -329,7 +329,7 @@ module TransferFunctions = struct
           let caller_pname = Procdesc.get_proc_name proc_desc in
           L.d_printfln_escaped "/!\\ Unknown call to %a from %a" Procname.pp callee_pname
             Procname.pp caller_pname ;
-          L.(debug Analysis Quiet)
+          L.(debug Analysis Verbose)
             "Unknown call to: %a from %a\n" Procname.pp callee_pname Procname.pp caller_pname ;
           mem
     in
