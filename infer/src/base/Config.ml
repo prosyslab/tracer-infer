@@ -1694,8 +1694,14 @@ and nullsafe_strict_containers =
     "Warn when containers are used with nullable keys or values"
 
 
+and only_files = CLOpt.mk_string_list ~default:[] ~long:"only-files" "Only specified files"
+
 and only_footprint =
   CLOpt.mk_bool ~deprecated:["only_footprint"] ~long:"only-footprint" "Skip the re-execution phase"
+
+
+and only_functions =
+  CLOpt.mk_string_list ~default:[] ~long:"only-functions" "Only specified functions"
 
 
 and oom_threshold =
@@ -3066,7 +3072,11 @@ and oom_threshold = !oom_threshold
 
 and only_cheap_debug = !only_cheap_debug
 
+and only_files = RevList.to_list !only_files
+
 and only_footprint = !only_footprint
+
+and only_functions = RevList.to_list !only_functions
 
 and passthroughs = !passthroughs
 

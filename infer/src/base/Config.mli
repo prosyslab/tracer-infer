@@ -419,7 +419,11 @@ val oom_threshold : int option
 
 val only_cheap_debug : bool
 
+val only_files : string list
+
 val only_footprint : bool
+
+val only_functions : string list
 
 val pmd_xml : bool
 
