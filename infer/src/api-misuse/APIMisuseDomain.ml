@@ -192,7 +192,9 @@ module PowLocWithIdx = struct
 
   let bottom = empty
 
-  let join = union
+  let join x y = if cardinal x + cardinal y > 100 then x else union x y
+
+  let add elt t = if cardinal t < 100 then add elt t else t
 
   let widen ~prev ~next ~num_iters:_ = join prev next
 
@@ -337,7 +339,7 @@ module Subst = struct
     ; subst_traces: TraceSet.t -> TraceSet.t }
 
   let empty =
-    { subst_powloc= (fun _ -> AbsLoc.PowLoc.bot)
+    { subst_powloc= (fun loc -> AbsLoc.PowLoc.singleton loc)
     ; subst_int_overflow= Fun.id
     ; subst_user_input= Fun.id
     ; subst_traces= Fun.id }

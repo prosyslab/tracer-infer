@@ -156,20 +156,16 @@ let make_subst_user_input p exp typ_exp location bo_mem mem subst_user_input s =
 
 let loc_of_symbol s = Allocsite.make_symbol s |> Loc.of_allocsite
 
-let make_subst_powloc p exp location bo_mem mem subst_powloc s =
-  let sym_absloc = p |> SPath.deref ~deref_kind:SPath.Deref_CPointer |> loc_of_symbol in
-  L.d_printfln_escaped "make subst powloc" ;
-  let {Dom.Val.powloc; _} = Sem.eval exp location bo_mem mem in
-  let powloc =
-    Dom.PowLocWithIdx.fold
-      (fun l s -> Dom.LocWithIdx.to_loc l |> Fun.flip AbsLoc.PowLoc.add s)
-      powloc AbsLoc.PowLoc.bot
-  in
-  L.d_printfln_escaped "%a =? %a -> %a" Loc.pp s Loc.pp sym_absloc PowLoc.pp powloc ;
-  if AbsLoc.Loc.equal s sym_absloc then
-    let _ = L.d_printfln_escaped "subst" in
-    powloc
-  else subst_powloc s
+let make_subst_powloc p exp typ_exp location bo_mem mem _subst_powloc s =
+  match Loc.get_path s with
+  | Some sym -> (
+    match symbol_subst sym p exp typ_exp location bo_mem mem with
+    | Some _ ->
+        AbsLoc.PowLoc.singleton s
+    | None ->
+        AbsLoc.PowLoc.singleton s )
+  | None ->
+      AbsLoc.PowLoc.singleton s
 
 
 let make_subst_int_overflow p exp typ_exp location bo_mem mem subst_int_overflow s =
@@ -195,7 +191,7 @@ let rec make_subst callee_pname formals actuals location bo_mem mem
         L.d_printfln_escaped "make subst: %a %a\n" SPath.pp_partial p Dom.Val.pp v_exp ;
         L.d_printfln_escaped "make subst int overflow: %a" Dom.IntOverflow.pp int_overflow ;
         L.d_printfln_escaped "make subst user input: %a" Dom.UserInput.pp user_input ;
-        { Dom.Subst.subst_powloc= make_subst_powloc p exp location bo_mem mem subst_powloc
+        { Dom.Subst.subst_powloc
         ; subst_int_overflow=
             make_subst_int_overflow p exp typ_exp location bo_mem mem subst_int_overflow
         ; subst_user_input= make_subst_user_input p exp typ_exp location bo_mem mem subst_user_input
@@ -277,7 +273,7 @@ module TransferFunctions = struct
     in
     let ret_val = ret_val |> Dom.Val.subst subst in
     let rec add_val_rec var present_mem present_depth =
-      if present_depth > 3 then present_mem
+      if present_depth > 2 then present_mem
       else
         let add_val = Domain.find var callee_exit_mem |> Dom.Val.subst subst in
         let add_val_powloc = Dom.Val.get_powloc add_val in
