@@ -192,9 +192,9 @@ module PowLocWithIdx = struct
 
   let bottom = empty
 
-  let join x y = if cardinal x + cardinal y > 100 then x else union x y
+  let join x y = if cardinal x + cardinal y > 50 then x else union x y
 
-  let add elt t = if cardinal t < 100 then add elt t else t
+  let add elt t = if cardinal t < 50 then add elt t else t
 
   let widen ~prev ~next ~num_iters:_ = join prev next
 
@@ -425,8 +425,7 @@ module Val = struct
 
   let subst {Subst.subst_int_overflow; subst_user_input; subst_traces} v =
     { v with
-      powloc= v.powloc
-    ; int_overflow= subst_int_overflow v.int_overflow
+      int_overflow= subst_int_overflow v.int_overflow
     ; user_input= subst_user_input v.user_input
     ; traces= subst_traces v.traces }
 

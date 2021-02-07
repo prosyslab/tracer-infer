@@ -497,6 +497,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"snprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $++$--> snprintf
     ; -"vsprintf" <>$ capt_exp $+ capt_exp $++$--> sprintf
     ; -"vsnprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $++$--> snprintf
+    ; -"getc" <>$ capt_exp $--> getc
     ; -"_IO_getc" <>$ capt_exp $--> getc
     ; -"getenv" <>$ capt_exp $--> getenv
     ; -"fgetc" <>$ capt_exp $--> getc
