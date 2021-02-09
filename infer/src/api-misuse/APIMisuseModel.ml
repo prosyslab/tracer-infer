@@ -246,11 +246,11 @@ let readdir _ =
     let struct_loc = Loc.of_allocsite struct_allocsite |> Dom.LocWithIdx.of_loc in
     let struct_powloc = Dom.PowLocWithIdx.singleton struct_loc in
     let dirent_type_name =
-      if SourceFile.has_extension location.file ~ext:"c" then
-        Typ.Name.C.from_qual_name (QualifiedCppName.of_qual_string "dirent")
-      else if SourceFile.has_extension location.file ~ext:"cpp" then
-        Typ.Name.Cpp.from_qual_name Typ.NoTemplate (QualifiedCppName.of_qual_string "dirent")
-      else raise (Failure "readdir model file extension error")
+      if
+        SourceFile.has_extension location.file ~ext:"c"
+        || SourceFile.has_extension location.file ~ext:"h"
+      then Typ.Name.C.from_qual_name (QualifiedCppName.of_qual_string "dirent")
+      else Typ.Name.Cpp.from_qual_name Typ.NoTemplate (QualifiedCppName.of_qual_string "dirent")
     in
     let d_name_field = Fieldname.make dirent_type_name "d_name" in
     let d_name_loc = Dom.LocWithIdx.append_field d_name_field struct_loc in
