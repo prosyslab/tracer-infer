@@ -104,3 +104,59 @@ and eval_binop bop e1 e2 loc bo_mem mem =
 
 
 and eval_unop _ e loc bo_mem mem = eval e loc bo_mem mem
+
+module Prune = struct
+  let rec exp_is_const_rec = function
+    | Exp.Const _ | Exp.Sizeof _ ->
+        true
+    | Exp.UnOp (_, e, _) ->
+        exp_is_const_rec e
+    | Exp.BinOp (_, e1, e2) ->
+        exp_is_const_rec e1 && exp_is_const_rec e2
+    | Exp.Cast (_, e) ->
+        exp_is_const_rec e
+    | Exp.Var _ | Exp.Exn _ | Exp.Closure _ | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ ->
+        false
+
+
+  let update_mem_prune_trace (v : Dom.Val.t) location mem bin_op_lst =
+    let v_traces = v.traces in
+    let new_traces =
+      List.fold ~init:v_traces
+        ~f:(fun traceset (bin_op, is_const) ->
+          TraceSet.append (Trace.make_prune_binop bin_op is_const location) traceset)
+        bin_op_lst
+    in
+    Dom.Mem.map
+      (fun ({traces; _} as iter_v) ->
+        if TraceSet.equal traces v_traces then {iter_v with traces= new_traces} else iter_v)
+      mem
+
+
+  let rec eval_prune exp location bin_op_lst mem =
+    match exp with
+    | Exp.Var id ->
+        let loc = AbsLoc.Loc.of_id id |> Dom.LocWithIdx.of_loc in
+        let v = Dom.Mem.find loc mem in
+        update_mem_prune_trace v location mem bin_op_lst
+    | Exp.BinOp (bin_op, e1, e2) ->
+        let symmetric_bop =
+          match Binop.symmetric bin_op with Some sym_bin_op -> sym_bin_op | None -> bin_op
+        in
+        mem
+        |> eval_prune e1 location ((bin_op, e2 |> exp_is_const_rec) :: bin_op_lst)
+        |> eval_prune e2 location ((symmetric_bop, e1 |> exp_is_const_rec) :: bin_op_lst)
+    | Exp.UnOp (_, e, _) | Exp.Cast (_, e) ->
+        eval_prune e location bin_op_lst mem
+    | Exp.Exn _
+    | Exp.Closure _
+    | Exp.Const _
+    | Exp.Lvar _
+    | Exp.Lfield (_, _, _)
+    | Exp.Lindex (_, _)
+    | Exp.Sizeof _ ->
+        mem
+
+
+  let prune exp location mem = eval_prune exp location [] mem
+end

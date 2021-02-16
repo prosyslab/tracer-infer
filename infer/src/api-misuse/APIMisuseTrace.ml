@@ -7,6 +7,7 @@ module Trace = struct
     | SymbolDecl of AbsLoc.Loc.t
     | Input of Procname.t * Location.t
     | BinOp of Binop.t * Location.t
+    | PruneBinop of Binop.t * bool * Location.t
     | Call of Procname.t * Location.t
     | Malloc of Location.t
     | Printf of Location.t
@@ -24,6 +25,8 @@ module Trace = struct
   let make_input pname loc = Input (pname, loc)
 
   let make_binop binop loc = BinOp (binop, loc)
+
+  let make_prune_binop binop is_const loc = PruneBinop (binop, is_const, loc)
 
   let make_call pname loc = Call (pname, loc)
 
@@ -47,6 +50,12 @@ module Trace = struct
           Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
       | BinOp (b, l) :: t ->
           let desc = String.concat ~sep:" " ["binop"; Binop.str Pp.text b] in
+          Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
+      | PruneBinop (bop, is_const, l) :: t ->
+          let desc =
+            String.concat ~sep:" "
+              ["prune"; Binop.str Pp.text bop; "const:"; string_of_bool is_const]
+          in
           Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
       | Call (pname, l) :: t ->
           let desc = String.concat ~sep:" " ["call"; Procname.to_string pname] in
@@ -87,6 +96,8 @@ module Trace = struct
         F.fprintf fmt "Input (%a)" Location.pp l
     | BinOp (_, l) ->
         F.fprintf fmt "BinOp (%a)" Location.pp l
+    | PruneBinop (_, _, l) ->
+        F.fprintf fmt "PruneBinop (%a)" Location.pp l
     | Call (_, l) ->
         F.fprintf fmt "Call (%a)" Location.pp l
     | Malloc l ->
