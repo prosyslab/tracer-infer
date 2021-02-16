@@ -106,6 +106,10 @@ and eval_binop bop e1 e2 loc bo_mem mem =
 and eval_unop _ e loc bo_mem mem = eval e loc bo_mem mem
 
 module Prune = struct
+  let make_not_bop bop = match Binop.negate bop with Some neg_bop -> neg_bop | None -> bop
+
+  let make_sym_bop bop = match Binop.symmetric bop with Some sym_bop -> sym_bop | None -> bop
+
   let rec exp_is_const_rec = function
     | Exp.Const _ | Exp.Sizeof _ ->
         true
@@ -133,21 +137,25 @@ module Prune = struct
       mem
 
 
-  let rec eval_prune exp location bin_op_lst mem =
+  let rec eval_prune exp location is_not bin_op_lst mem =
     match exp with
     | Exp.Var id ->
         let loc = AbsLoc.Loc.of_id id |> Dom.LocWithIdx.of_loc in
         let v = Dom.Mem.find loc mem in
         update_mem_prune_trace v location mem bin_op_lst
     | Exp.BinOp (bin_op, e1, e2) ->
-        let symmetric_bop =
-          match Binop.symmetric bin_op with Some sym_bin_op -> sym_bin_op | None -> bin_op
+        let symmetric_bop = make_sym_bop bin_op in
+        let bop1, bop2 =
+          if is_not then (make_not_bop bin_op, make_not_bop symmetric_bop)
+          else (bin_op, symmetric_bop)
         in
         mem
-        |> eval_prune e1 location ((bin_op, e2 |> exp_is_const_rec) :: bin_op_lst)
-        |> eval_prune e2 location ((symmetric_bop, e1 |> exp_is_const_rec) :: bin_op_lst)
+        |> eval_prune e1 location is_not ((bop1, e2 |> exp_is_const_rec) :: bin_op_lst)
+        |> eval_prune e2 location is_not ((bop2, e1 |> exp_is_const_rec) :: bin_op_lst)
+    | Exp.UnOp (Unop.LNot, e, _) ->
+        eval_prune e location (not is_not) bin_op_lst mem
     | Exp.UnOp (_, e, _) | Exp.Cast (_, e) ->
-        eval_prune e location bin_op_lst mem
+        eval_prune e location is_not bin_op_lst mem
     | Exp.Exn _
     | Exp.Closure _
     | Exp.Const _
@@ -158,5 +166,5 @@ module Prune = struct
         mem
 
 
-  let prune exp location mem = eval_prune exp location [] mem
+  let prune exp location mem = eval_prune exp location false [] mem
 end
