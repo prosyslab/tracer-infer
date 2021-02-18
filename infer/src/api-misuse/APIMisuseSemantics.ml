@@ -168,8 +168,8 @@ module Prune = struct
 
   let prune exp location mem branch if_kind =
     match if_kind with
-    | Sil.Ik_if ->
+    | Sil.Ik_if | Sil.Ik_bexp ->
         eval_prune exp location (not branch) [] mem
-    | Sil.Ik_bexp | Sil.Ik_dowhile | Sil.Ik_for | Sil.Ik_land_lor | Sil.Ik_while | Sil.Ik_switch ->
+    | Sil.Ik_while | Sil.Ik_dowhile | Sil.Ik_for | Sil.Ik_land_lor | Sil.Ik_switch ->
         mem
 end
