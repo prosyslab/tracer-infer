@@ -204,6 +204,8 @@ let sprintf _ str args =
 
 let snprintf _ _ str args = sprintf Exp.null str args
 
+let fprintf _ str = printf str
+
 let gnutls_x509_crt_get_subject_alt_name _ _ ret_addr =
   let exec {node; location; bo_mem_opt} ~ret:_ mem =
     let locs = Sem.eval_locs ret_addr location bo_mem_opt mem in
@@ -497,6 +499,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"snprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $++$--> snprintf
     ; -"vsprintf" <>$ capt_exp $+ capt_exp $++$--> sprintf
     ; -"vsnprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $++$--> snprintf
+    ; -"fprintf" <>$ capt_exp $+ capt_exp $--> fprintf
     ; -"getc" <>$ capt_exp $--> getc
     ; -"_IO_getc" <>$ capt_exp $--> getc
     ; -"getenv" <>$ capt_exp $--> getenv
