@@ -174,6 +174,6 @@ val rename : f:(string -> string) -> t -> t
 (** Sets of pvars. *)
 module Set : PrettyPrintable.PPSet with type elt = t
 
-type capture_mode = ByReference | ByValue [@@deriving compare, equal]
+type capture_mode = ByReference | ByValue [@@deriving compare, equal, yojson_of]
 
 val string_of_capture_mode : capture_mode -> string

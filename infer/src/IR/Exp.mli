@@ -46,6 +46,8 @@ and t =
 val equal : t -> t -> bool
 (** Equality for expressions. *)
 
+val yojson_of_t : t -> Yojson.Safe.t
+
 (** Set of expressions. *)
 module Set : Caml.Set.S with type elt = t
 

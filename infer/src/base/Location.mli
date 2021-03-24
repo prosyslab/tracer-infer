@@ -31,6 +31,8 @@ val pp_line : Format.formatter -> t -> unit
 val to_string : t -> string
 (** String representation of a location. *)
 
+val yojson_of_t : t -> Yojson.Safe.t
+
 val pp_file_pos : Format.formatter -> t -> unit
 (** Pretty print a file-position of a location *)
 

@@ -20,9 +20,11 @@ type loc_trace_elem = private
   { lt_level: int  (** nesting level of procedure calls *)
   ; lt_loc: Location.t  (** source location at the current step in the trace *)
   ; lt_description: string  (** description of the current step in the trace *)
-  ; lt_node_tags: node_tag list  (** tags describing the node at the current location *) }
+  ; lt_node_tags: node_tag list  (** tags describing the node at the current location *)
+  ; feature: Yojson.Safe.t [@compare.ignore] }
 
-val make_trace_element : int -> Location.t -> string -> node_tag list -> loc_trace_elem
+val make_trace_element :
+  ?feature:Yojson.Safe.t -> int -> Location.t -> string -> node_tag list -> loc_trace_elem
 (** build a loc_trace_elem from its constituents (unambiguously identified by their types). *)
 
 (** Trace of locations *)

@@ -99,9 +99,9 @@ and eval exp loc bo_mem mem =
   | Exp.Const _ ->
       Dom.Init.Init |> Val.of_init
   | Exp.BinOp (bop, e1, e2) ->
-      eval_binop bop e1 e2 loc bo_mem mem
-  | Exp.UnOp (uop, e, _) ->
-      eval_unop uop e loc bo_mem mem
+      eval_binop exp bop e1 e2 loc bo_mem mem
+  | Exp.UnOp (_, e, _) ->
+      eval_unop e loc bo_mem mem
   | Exp.Cast (_, e1) ->
       eval e1 loc bo_mem mem
   | Exp.Lindex (e1, _) ->
@@ -114,18 +114,13 @@ and eval exp loc bo_mem mem =
         (fun loc v -> Dom.Mem.find loc mem |> Dom.Val.join v)
         powloc_field Dom.Val.bottom
   | _ ->
-      (* TODO *)
       Val.bottom
 
 
-and eval_binop bop e1 e2 loc bo_mem mem =
+and eval_binop _ bop e1 e2 loc bo_mem mem =
   let v1 = eval e1 loc bo_mem mem in
   let v2 = eval e2 loc bo_mem mem in
-  let traces =
-    let t1 = TraceSet.append (Trace.make_binop bop loc) v1.Val.traces in
-    let t2 = TraceSet.append (Trace.make_binop bop loc) v2.Val.traces in
-    TraceSet.join t1 t2
-  in
+  let traces = TraceSet.join v1.Val.traces v2.Val.traces in
   match bop with
   | (Binop.Shiftlt | Binop.PlusA _ | Binop.Mult _) when not (check_no_overflow bop e1 e2) ->
       let overflow v =
@@ -148,7 +143,7 @@ and eval_binop bop e1 e2 loc bo_mem mem =
       ; traces }
 
 
-and eval_unop _ e loc bo_mem mem = eval e loc bo_mem mem
+and eval_unop e loc bo_mem mem = eval e loc bo_mem mem
 
 module Prune = struct
   let make_not_bop bop = match Binop.negate bop with Some neg_bop -> neg_bop | None -> bop
@@ -168,26 +163,20 @@ module Prune = struct
         false
 
 
-  let update_mem_prune_trace (v : Dom.Val.t) location mem bin_op_lst =
-    let v_traces = v.traces in
-    let new_traces =
-      List.fold ~init:v_traces
-        ~f:(fun traceset (bin_op, is_const) ->
-          TraceSet.append (Trace.make_prune_binop bin_op is_const location) traceset)
-        bin_op_lst
-    in
+  let update_mem_prune_trace root (v : Dom.Val.t) location mem =
+    let new_traces = TraceSet.append (Trace.make_prune root location) v.traces in
     Dom.Mem.map
       (fun ({traces; _} as iter_v) ->
-        if TraceSet.equal traces v_traces then {iter_v with traces= new_traces} else iter_v)
+        if TraceSet.equal traces v.traces then {iter_v with traces= new_traces} else iter_v)
       mem
 
 
-  let rec eval_prune exp location is_not bin_op_lst mem =
+  let rec eval_prune root exp location is_not bin_op_lst mem =
     match exp with
     | Exp.Var id ->
         let loc = AbsLoc.Loc.of_id id |> Dom.LocWithIdx.of_loc in
         let v = Dom.Mem.find loc mem in
-        update_mem_prune_trace v location mem bin_op_lst
+        update_mem_prune_trace root v location mem
     | Exp.BinOp (bin_op, e1, e2) ->
         let symmetric_bop = make_sym_bop bin_op in
         let bop1, bop2 =
@@ -195,12 +184,12 @@ module Prune = struct
           else (bin_op, symmetric_bop)
         in
         mem
-        |> eval_prune e1 location is_not ((bop1, e2 |> exp_is_const_rec) :: bin_op_lst)
-        |> eval_prune e2 location is_not ((bop2, e1 |> exp_is_const_rec) :: bin_op_lst)
+        |> eval_prune root e1 location is_not ((bop1, e2 |> exp_is_const_rec) :: bin_op_lst)
+        |> eval_prune root e2 location is_not ((bop2, e1 |> exp_is_const_rec) :: bin_op_lst)
     | Exp.UnOp (Unop.LNot, e, _) ->
-        eval_prune e location (not is_not) bin_op_lst mem
+        eval_prune root e location (not is_not) bin_op_lst mem
     | Exp.UnOp (_, e, _) | Exp.Cast (_, e) ->
-        eval_prune e location is_not bin_op_lst mem
+        eval_prune root e location is_not bin_op_lst mem
     | Exp.Exn _
     | Exp.Closure _
     | Exp.Const _
@@ -214,7 +203,7 @@ module Prune = struct
   let prune exp location mem branch if_kind =
     match if_kind with
     | Sil.Ik_if | Sil.Ik_bexp ->
-        eval_prune exp location (not branch) [] mem
+        eval_prune exp exp location (not branch) [] mem
     | Sil.Ik_while | Sil.Ik_dowhile | Sil.Ik_for | Sil.Ik_land_lor | Sil.Ik_switch ->
         mem
 end

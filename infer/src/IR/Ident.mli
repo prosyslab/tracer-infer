@@ -19,6 +19,8 @@ val equal : t -> t -> bool
 (** Names used to replace strings. *)
 type name [@@deriving compare]
 
+val yojson_of_name : name -> Yojson.Safe.t
+
 val equal_name : name -> name -> bool
 (** Equality for names. *)
 

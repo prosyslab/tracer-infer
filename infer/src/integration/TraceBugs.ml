@@ -24,9 +24,10 @@ let with_file_fmt file ~f =
 
 
 let pp_trace_item ~show_source_context fmt
-    Jsonbug_t.{level; filename; line_number; column_number; description} =
+    Jsonbug_t.{level; filename; line_number; column_number; description; feature} =
   let pp_col_number fmt c = if c >= 0 then F.fprintf fmt ":%d" c in
-  F.fprintf fmt "%s:%d%a: %s@\n" filename line_number pp_col_number column_number description ;
+  F.fprintf fmt "%s:%d%a: %s %s@\n" filename line_number pp_col_number column_number description
+    feature ;
   if show_source_context then
     TextReport.pp_source_context ~indent:(2 * level) fmt
       {Jsonbug_t.file= filename; lnum= line_number; cnum= column_number; enum= -1}

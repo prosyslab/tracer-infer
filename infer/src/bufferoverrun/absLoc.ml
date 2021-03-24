@@ -136,6 +136,8 @@ module Loc = struct
 
   let of_allocsite a = BoField.Prim (Allocsite a)
 
+  let yojson_of_t _ = `Null
+
   let prim_append_field ?typ l0 fn _aux _depth = function
     | Allocsite a as l when Allocsite.is_unknown a ->
         BoField.Prim l

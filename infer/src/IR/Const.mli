@@ -18,7 +18,7 @@ type t =
   | Cstr of string  (** string constants *)
   | Cfloat of float  (** float constants *)
   | Cclass of Ident.name  (** class constant *)
-[@@deriving compare]
+[@@deriving compare, yojson_of]
 
 val equal : t -> t -> bool
 

@@ -41,6 +41,8 @@ val pp : Formatter.t -> t -> unit
 
 val equal : t -> t -> bool
 
+val yojson_of_t : t -> Yojson.Safe.t
+
 val injective : t -> bool
 (** This function returns true if the operation is injective wrt. each argument: op(e,-) and op(-,
     e) is injective for all e. The return value false means "don't know". *)

@@ -11,6 +11,7 @@ type json_trace_item = {
   line_number : int;
   column_number : int;
   description : string;
+  feature : string;
 }
 
 type loc = {

@@ -349,6 +349,7 @@ module TransferFunctions = struct
         (* e1 can be either PVar or LVar. *)
         let locs1 = Sem.eval_locs e1 location bo_mem_opt mem in
         let v = Sem.eval e2 location bo_mem_opt mem in
+        let v = {v with traces= TraceSet.append (Trace.make_store e1 e2 location) v.traces} in
         let update_func =
           match e1 with Exp.Lindex (_, _) -> Dom.Mem.weak_update | _ -> Dom.Mem.add
         in

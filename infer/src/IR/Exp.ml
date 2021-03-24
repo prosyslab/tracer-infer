@@ -48,6 +48,23 @@ and t =
   | Sizeof of sizeof_data
 [@@deriving compare]
 
+let rec yojson_of_t = function
+  | Var _ | Lvar _ | Lfield _ | Lindex _ ->
+      `List [`String "Var"]
+  | UnOp (uop, t, _) ->
+      `List [`String "UnOp"; Unop.yojson_of_t uop; yojson_of_t t]
+  | BinOp (bop, t1, t2) ->
+      `List [`String "BinOp"; Binop.yojson_of_t bop; yojson_of_t t1; yojson_of_t t2]
+  | Const c ->
+      `List [`String "Const"; Const.yojson_of_t c]
+  | Cast (typ, t) ->
+      `List [`String "Cast"; Typ.yojson_of_t typ; yojson_of_t t]
+  | Sizeof {typ} ->
+      `List [`String "Sizeof"; Typ.yojson_of_t typ]
+  | Exn _ | Closure _ ->
+      `List [`String "Other"]
+
+
 let equal = [%compare.equal: t]
 
 let hash = Hashtbl.hash
@@ -287,7 +304,7 @@ let pp_diff ?(print_types = false) =
             e0
       in
       if not (equal e0 e) then match e with Lvar pvar -> Pvar.pp_value f pvar | _ -> assert false
-      else pp_printenv ~print_types pe f e )
+      else pp_printenv ~print_types pe f e)
 
 
 (** dump an expression. *)

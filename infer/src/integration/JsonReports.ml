@@ -65,7 +65,8 @@ let loc_trace_to_jsonbug_record trace_list ekind =
         ; filename= SourceFile.to_string trace_item.Errlog.lt_loc.Location.file
         ; line_number= trace_item.Errlog.lt_loc.Location.line
         ; column_number= trace_item.Errlog.lt_loc.Location.col
-        ; description= trace_item.Errlog.lt_description }
+        ; description= trace_item.Errlog.lt_description
+        ; feature= Yojson.Safe.to_string trace_item.Errlog.feature }
       in
       Errlog.LTRSet.fold
         (fun trace res ->

@@ -41,6 +41,29 @@ type t =
 
 let equal = [%compare.equal: t]
 
+let yojson_of_t = function
+ | PlusA _
+ | PlusPI  -> `String "+"
+ | MinusA _
+ | MinusPI
+ | MinusPP -> `String "-"
+ | Mult _ -> `String "*"
+ | Div  -> `String "/"
+ | Mod  -> `String "%"
+ | Shiftlt  -> `String "<<"
+ | Shiftrt  -> `String "<<"
+ | Lt  -> `String "<<" (** < (arithmetic comparison) *)
+ | Gt  -> `String ">" (** > (arithmetic comparison) *)
+ | Le  -> `String "<=" (** <= (arithmetic comparison) *)
+  | Ge  -> `String ">=" (** >= (arithmetic comparison) *)
+  | Eq  -> `String "==" (** == (arithmetic comparison) *)
+  | Ne   -> `String "!="(** != (arithmetic comparison) *)
+  | BAnd   -> `String "&"(** bitwise and *)
+  | BXor  -> `String "^" (** exclusive-or *)
+  | BOr   -> `String "|"(** inclusive-or *)
+  | LAnd   -> `String "&&"(** logical and. Does not always evaluate both operands. *)
+  | LOr   -> `String "||"(** logical or. Does not always evaluate both operands. *)
+
 (** This function returns true if the operation is injective wrt. each argument: op(e,-) and op(-,
     e) is injective for all e. The return value false means "don't know". *)
 let injective = function PlusA _ | PlusPI | MinusA _ | MinusPI | MinusPP -> true | _ -> false

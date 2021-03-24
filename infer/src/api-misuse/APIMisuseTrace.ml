@@ -6,13 +6,13 @@ module Trace = struct
   type elem =
     | SymbolDecl of AbsLoc.Loc.t
     | Input of Procname.t * Location.t
-    | BinOp of Binop.t * Location.t
-    | PruneBinop of Binop.t * bool * Location.t
+    | Store of Exp.t * Exp.t * Location.t
+    | Prune of Exp.t * Location.t
     | Call of Procname.t * Location.t
     | Malloc of Location.t
     | Printf of Location.t
     | Sprintf of Location.t
-  [@@deriving compare]
+  [@@deriving compare, yojson_of]
 
   type t = elem list [@@deriving compare]
 
@@ -24,9 +24,9 @@ module Trace = struct
 
   let make_input pname loc = Input (pname, loc)
 
-  let make_binop binop loc = BinOp (binop, loc)
+  let make_store e1 e2 loc = Store (e1, e2, loc)
 
-  let make_prune_binop binop is_const loc = PruneBinop (binop, is_const, loc)
+  let make_prune e loc = Prune (e, loc)
 
   let make_call pname loc = Call (pname, loc)
 
@@ -42,23 +42,22 @@ module Trace = struct
 
   let make_err_trace t =
     let rec make_err_trace_rec depth t tail =
+      let sep = ", " in
       match t with
       | [] ->
           tail
       | Input (pname, l) :: t ->
-          let desc = String.concat ~sep:" " ["input"; Procname.to_string pname] in
+          let desc = String.concat ~sep ["input"; Procname.to_string pname] in
           Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
-      | BinOp (b, l) :: t ->
-          let desc = String.concat ~sep:" " ["binop"; Binop.str Pp.text b] in
-          Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
-      | PruneBinop (bop, is_const, l) :: t ->
-          let desc =
-            String.concat ~sep:" "
-              ["prune"; Binop.str Pp.text bop; "const:"; string_of_bool is_const]
-          in
+      | Store (e1, e2, l) :: t ->
+          let desc = String.concat ~sep ["store"; Exp.to_string e1; Exp.to_string e2] in
+          let feature = `List [`String "Store"; Exp.yojson_of_t e1; Exp.yojson_of_t e2] in
+          Errlog.make_trace_element ~feature depth l desc [] :: tail |> make_err_trace_rec depth t
+      | Prune (e, l) :: t ->
+          let desc = String.concat ~sep ["prune"; Exp.to_string e] in
           Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
       | Call (pname, l) :: t ->
-          let desc = String.concat ~sep:" " ["call"; Procname.to_string pname] in
+          let desc = String.concat ~sep ["call"; Procname.to_string pname] in
           Errlog.make_trace_element (depth + 1) l desc [] :: tail |> make_err_trace_rec depth t
       | Malloc l :: t ->
           let desc = "malloc" in
@@ -78,25 +77,22 @@ module Trace = struct
   let last_elem t = List.last t
 
   let src_may_match src_loc tr =
-    match last_elem tr with
-    | Some tr_elem -> (
-      match tr_elem with
-      | SymbolDecl _ ->
-          true
-      | Input (_, input_loc) ->
-          Location.equal src_loc input_loc
-      | _ ->
-          false )
-    | None ->
-        false
+    List.exists tr ~f:(fun tr_elem ->
+        match tr_elem with
+        | SymbolDecl _ ->
+            true
+        | Input (_, input_loc) ->
+            Location.equal src_loc input_loc
+        | _ ->
+            false)
 
 
   let pp_elem fmt = function
     | Input (_, l) ->
         F.fprintf fmt "Input (%a)" Location.pp l
-    | BinOp (_, l) ->
-        F.fprintf fmt "BinOp (%a)" Location.pp l
-    | PruneBinop (_, _, l) ->
+    | Store (_, _, l) ->
+        F.fprintf fmt "Store (%a)" Location.pp l
+    | Prune (_, l) ->
         F.fprintf fmt "PruneBinop (%a)" Location.pp l
     | Call (_, l) ->
         F.fprintf fmt "Call (%a)" Location.pp l
@@ -146,11 +142,11 @@ let subset_match_src src_loc ltr_set =
       Some
         (Errlog.LTRSet.filter
            (fun trace ->
-             match List.hd trace with
-             | Some input_elem ->
-                 Location.equal src_loc input_elem.lt_loc
-             | None ->
-                 false)
+             List.exists
+               ~f:(fun input_elem ->
+                 (* input may be at the second position, because of bin op *)
+                 Location.equal src_loc input_elem.Errlog.lt_loc)
+               trace)
            s)
   | None ->
       None

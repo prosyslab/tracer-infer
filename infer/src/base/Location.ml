@@ -35,6 +35,8 @@ let pp_short f loc =
 
 let to_string loc = F.asprintf "%a" pp_short loc
 
+let yojson_of_t loc = `String (to_string loc)
+
 (** Pretty print a file-position of a location *)
 let pp_file_pos f (loc : t) = F.fprintf f "%a:%a" SourceFile.pp loc.file pp_short loc
 

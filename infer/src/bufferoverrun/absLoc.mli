@@ -51,6 +51,8 @@ module Loc : sig
 
   val of_allocsite : Allocsite.t -> t
 
+  val yojson_of_t : t -> Yojson.Safe.t
+
   val of_c_strlen : t -> t
   (** It appends the [strlen] field. *)
 

@@ -41,6 +41,8 @@ end
 
 type name = Name.t [@@deriving compare]
 
+let yojson_of_name _ = `Null
+
 let name_spec = Name.Spec
 
 let equal_name = [%compare.equal: name]
@@ -239,7 +241,7 @@ let hashqueue_of_sequence ?init s =
   let q = match init with None -> HashQueue.create () | Some q0 -> q0 in
   Sequence.iter s ~f:(fun id ->
       let (_ : [`Key_already_present | `Ok]) = HashQueue.enqueue_back q id () in
-      () ) ;
+      ()) ;
   q
 
 

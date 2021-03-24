@@ -15,7 +15,7 @@ type t =
   | Neg  (** Unary minus *)
   | BNot  (** Bitwise complement (~) *)
   | LNot  (** Logical Not (!) *)
-[@@deriving compare]
+[@@deriving compare, yojson_of]
 
 let equal = [%compare.equal: t]
 
