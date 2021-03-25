@@ -31,6 +31,51 @@ let bo_eval pvar bo_mem_opt mem =
       |> Dom.Val.of_pow_loc
 
 
+let is_one exp =
+  match exp with
+  | Exp.Const c ->
+      Const.isone_int_float c
+  | Exp.Sizeof {nbytes; _} -> (
+    match nbytes with Some n -> Int.equal n 1 | None -> false )
+  | Exp.Var _
+  | Exp.UnOp _
+  | Exp.BinOp _
+  | Exp.Exn _
+  | Exp.Closure _
+  | Exp.Cast _
+  | Exp.Lvar _
+  | Exp.Lfield _
+  | Exp.Lindex _ ->
+      false
+
+
+let check_no_overflow bop e1 e2 =
+  match bop with
+  | Binop.Shiftlt | Binop.PlusA _ ->
+      Exp.is_zero e1 || Exp.is_zero e2
+  | Binop.Mult _ ->
+      is_one e1 || is_one e2
+  | Binop.PlusPI
+  | Binop.MinusA _
+  | Binop.MinusPI
+  | Binop.MinusPP
+  | Binop.Div
+  | Binop.Mod
+  | Binop.Shiftrt
+  | Binop.Lt
+  | Binop.Gt
+  | Binop.Le
+  | Binop.Ge
+  | Binop.Eq
+  | Binop.Ne
+  | Binop.BAnd
+  | Binop.BXor
+  | Binop.BOr
+  | Binop.LAnd
+  | Binop.LOr ->
+      true
+
+
 let rec eval_locs exp _ bo_mem mem =
   match exp with
   | Exp.Var id ->
@@ -82,7 +127,7 @@ and eval_binop bop e1 e2 loc bo_mem mem =
     TraceSet.join t1 t2
   in
   match bop with
-  | Binop.Shiftlt | Binop.PlusA _ | Binop.Mult _ ->
+  | (Binop.Shiftlt | Binop.PlusA _ | Binop.Mult _) when not (check_no_overflow bop e1 e2) ->
       let overflow v =
         if v.Val.user_input |> Dom.UserInput.is_taint || v.Val.user_input |> Dom.UserInput.is_symbol
         then Dom.IntOverflow.top
