@@ -12,6 +12,7 @@ module Trace = struct
     | Malloc of Location.t
     | Printf of Location.t
     | Sprintf of Location.t
+    | Exec of Location.t
   [@@deriving compare, yojson_of]
 
   type t = elem list [@@deriving compare]
@@ -37,6 +38,8 @@ module Trace = struct
   let make_printf loc = Printf loc
 
   let make_spritnf loc = Sprintf loc
+
+  let make_exec loc = Exec loc
 
   let of_symbol s = SymbolDecl (Allocsite.make_symbol s |> Loc.of_allocsite)
 
@@ -67,6 +70,9 @@ module Trace = struct
           Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
       | Sprintf l :: t ->
           let desc = "sprintf" in
+          Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
+      | Exec l :: t ->
+          let desc = "exec" in
           Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
       | SymbolDecl _ :: t ->
           make_err_trace_rec depth t tail
@@ -102,6 +108,8 @@ module Trace = struct
         F.fprintf fmt "Printf (%a)" Location.pp l
     | Sprintf l ->
         F.fprintf fmt "Sprintf (%a)" Location.pp l
+    | Exec l ->
+        F.fprintf fmt "Exec (%a)" Location.pp l
     | SymbolDecl l ->
         F.fprintf fmt "Symbol (%a)" AbsLoc.Loc.pp l
 

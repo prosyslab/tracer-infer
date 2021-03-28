@@ -306,6 +306,21 @@ let atoi str =
   {exec; check= empty_check_fun}
 
 
+let system str =
+  let check {location; bo_mem_opt} mem condset =
+    let v = Sem.eval str location bo_mem_opt mem in
+    let v_powloc = v |> Dom.Val.get_powloc in
+    let user_input_val =
+      Dom.PowLocWithIdx.fold
+        (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
+        v_powloc Dom.Val.bottom
+      |> Dom.Val.append_trace_elem (Trace.make_exec location)
+    in
+    Dom.CondSet.union (Dom.CondSet.make_exec user_input_val location) condset
+  in
+  {exec= empty_exec_fun; check}
+
+
 let infer_print exp =
   let exec {location; bo_mem_opt} ~ret:_ mem =
     let v = Sem.eval exp location bo_mem_opt mem in
@@ -513,4 +528,11 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"readdir" <>$ capt_exp $--> readdir
     ; -"getopt" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> getopt
     ; -"atoi" <>$ capt_exp $--> atoi
+    ; -"system" <>$ capt_exp $--> system
+    ; -"execl" <>$ capt_exp $+...$--> system
+    ; -"execv" <>$ capt_exp $+...$--> system
+    ; -"execle" <>$ capt_exp $+...$--> system
+    ; -"execve" <>$ capt_exp $+...$--> system
+    ; -"execlp" <>$ capt_exp $+...$--> system
+    ; -"execvp" <>$ capt_exp $+...$--> system
     ; -"__infer_print__" <>$ capt_exp $--> infer_print ]

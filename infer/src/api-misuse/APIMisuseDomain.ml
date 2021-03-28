@@ -562,6 +562,11 @@ module Cond = struct
         ; loc: Location.t
         ; traces: (TraceSet.t[@compare.ignore])
         ; reported: bool }
+    | Exec of
+        { user_input_elem: UserInput.Elem.t
+        ; loc: Location.t
+        ; traces: (TraceSet.t[@compare.ignore])
+        ; reported: bool }
   [@@deriving compare]
 
   let make_uninit absloc init loc =
@@ -580,6 +585,10 @@ module Cond = struct
     BufferOverflow {user_input_elem; loc; traces; reported= false}
 
 
+  let make_exec {Val.traces} user_input_elem loc =
+    Exec {user_input_elem; loc; traces; reported= false}
+
+
   let reported = function
     | UnInit cond ->
         UnInit {cond with reported= true}
@@ -589,12 +598,14 @@ module Cond = struct
         Format {cond with reported= true}
     | BufferOverflow cond ->
         BufferOverflow {cond with reported= true}
+    | Exec cond ->
+        Exec {cond with reported= true}
 
 
   let is_symbolic = function
     | UnInit cond ->
         LocWithIdx.is_symbolic cond.absloc
-    | Overflow _ | Format _ | BufferOverflow _ ->
+    | Overflow _ | Format _ | BufferOverflow _ | Exec _ ->
         (* TODO *)
         false
 
@@ -608,6 +619,8 @@ module Cond = struct
         cond.loc
     | BufferOverflow cond ->
         cond.loc
+    | Exec cond ->
+        cond.loc
 
 
   let is_reported = function
@@ -618,6 +631,8 @@ module Cond = struct
     | Format cond ->
         cond.reported
     | BufferOverflow cond ->
+        cond.reported
+    | Exec cond ->
         cond.reported
 
 
@@ -637,7 +652,9 @@ module Cond = struct
         UserInput.Elem.is_source cond.user_input_elem
     | BufferOverflow cond ->
         UserInput.Elem.is_source cond.user_input_elem
-    | _ ->
+    | Exec cond ->
+        UserInput.Elem.is_source cond.user_input_elem
+    | UnInit _ ->
         false
 
 
@@ -649,7 +666,9 @@ module Cond = struct
         Some cond.user_input_elem
     | BufferOverflow cond ->
         Some cond.user_input_elem
-    | _ ->
+    | Exec cond ->
+        Some cond.user_input_elem
+    | UnInit _ ->
         None
 
 
@@ -700,6 +719,12 @@ module Cond = struct
         in
         List.map substed_user_input_list ~f:(fun elem ->
             BufferOverflow {cond with user_input_elem= elem; traces= subst_traces cond.traces})
+    | Exec cond ->
+        let substed_user_input_list =
+          UserInput.make_elem cond.user_input_elem |> subst_user_input |> UserInput.to_list
+        in
+        List.map substed_user_input_list ~f:(fun elem ->
+            Exec {cond with user_input_elem= elem; traces= subst_traces cond.traces})
 
 
   let pp fmt = function
@@ -713,6 +738,9 @@ module Cond = struct
         F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
           Location.pp cond.loc TraceSet.pp cond.traces
     | BufferOverflow cond ->
+        F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
+          Location.pp cond.loc TraceSet.pp cond.traces
+    | Exec cond ->
         F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
           Location.pp cond.loc TraceSet.pp cond.traces
 end
@@ -774,6 +802,22 @@ module CondSet = struct
             v.traces
         in
         add (Cond.make_buffer_overflow {v with traces} user_input_elem loc) cs)
+
+
+  let make_exec (v : Val.t) loc =
+    let user_input_list = UserInput.to_list v.user_input in
+    List.fold user_input_list ~init:bottom ~f:(fun cs user_input_elem ->
+        let traces =
+          TraceSet.filter
+            (fun tr ->
+              match user_input_elem with
+              | UserInput.Elem.Source (_, src_loc) ->
+                  Trace.src_may_match src_loc tr
+              | UserInput.Elem.Symbol _ ->
+                  true)
+            v.traces
+        in
+        add (Cond.make_exec {v with traces} user_input_elem loc) cs)
 end
 
 module Summary = struct
