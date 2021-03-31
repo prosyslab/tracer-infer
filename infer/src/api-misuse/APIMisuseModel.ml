@@ -153,6 +153,38 @@ let strcpy dst src =
   {exec; check= empty_check_fun}
 
 
+let memcpy dst src len =
+  let exec {bo_mem_opt; location} ~ret:_ mem =
+    let src_locs = Sem.eval_locs src location bo_mem_opt mem in
+    let src_deref_v =
+      Dom.PowLocWithIdx.fold
+        (fun loc v -> Dom.Mem.find loc mem |> Dom.Val.join v)
+        src_locs Dom.Val.bottom
+    in
+    let dst_locs = Sem.eval_locs dst location bo_mem_opt mem in
+    Dom.PowLocWithIdx.fold (fun loc m -> Dom.Mem.add loc src_deref_v m) dst_locs mem
+  in
+  let check {pname; location; bo_mem_opt} mem condset =
+    let v =
+      Sem.eval len location bo_mem_opt mem
+      |> Dom.Val.append_trace_elem (Trace.make_underflow pname location)
+    in
+    Dom.CondSet.union (Dom.CondSet.make_underflow v location) condset
+  in
+  {exec; check}
+
+
+let memset _ _ len =
+  let check {pname; location; bo_mem_opt} mem condset =
+    let v =
+      Sem.eval len location bo_mem_opt mem
+      |> Dom.Val.append_trace_elem (Trace.make_underflow pname location)
+    in
+    Dom.CondSet.union (Dom.CondSet.make_underflow v location) condset
+  in
+  {exec= empty_exec_fun; check}
+
+
 let strtok src =
   let exec {location; bo_mem_opt} ~ret mem =
     let v = Sem.eval src location bo_mem_opt mem in
@@ -522,7 +554,8 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"strtok" <>$ capt_exp $+...$--> strtok
     ; -"strdup" <>$ capt_exp $--> strdup
     ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy
-    ; -"memcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy
+    ; -"memcpy" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> memcpy
+    ; -"memset" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> memset
     ; -"gnutls_x509_crt_get_subject_alt_name"
       <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> gnutls_x509_crt_get_subject_alt_name
     ; -"readdir" <>$ capt_exp $--> readdir

@@ -209,17 +209,8 @@ module PowLocWithIdx = struct
   let append_field ?typ fn set = map (LocWithIdx.append_field ?typ fn) set
 end
 
-module IntOverflow = struct
+module BTS = struct
   type t = Bot | Top | Symbol of Symb.SymbolPath.partial [@@deriving compare, equal]
-
-  let to_string = function
-    | Bot ->
-        "No Overflow"
-    | Top ->
-        "May Overflow"
-    | Symbol s ->
-        F.asprintf "%a" Symb.SymbolPath.pp_partial s
-
 
   let bottom = Bot
 
@@ -262,6 +253,34 @@ module IntOverflow = struct
   let narrow = meet
 
   let make_symbol p = Symbol p
+end
+
+module IntOverflow = struct
+  include BTS
+
+  let to_string = function
+    | Bot ->
+        "No IntOverflow"
+    | Top ->
+        "May IntOverflow"
+    | Symbol s ->
+        F.asprintf "%a" Symb.SymbolPath.pp_partial s
+
+
+  let pp fmt x = F.fprintf fmt "%s" (to_string x)
+end
+
+module IntUnderflow = struct
+  include BTS
+
+  let to_string = function
+    | Bot ->
+        "No IntUnderflow"
+    | Top ->
+        "May IntUnderflow"
+    | Symbol s ->
+        F.asprintf "%a" Symb.SymbolPath.pp_partial s
+
 
   let pp fmt x = F.fprintf fmt "%s" (to_string x)
 end
@@ -335,12 +354,14 @@ module Subst = struct
   type subst =
     { subst_powloc: Loc.t -> PowLoc.t
     ; subst_int_overflow: IntOverflow.t -> IntOverflow.t
+    ; subst_int_underflow: IntUnderflow.t -> IntUnderflow.t
     ; subst_user_input: UserInput.t -> UserInput.t
     ; subst_traces: TraceSet.t -> TraceSet.t }
 
   let empty =
     { subst_powloc= (fun loc -> AbsLoc.PowLoc.singleton loc)
     ; subst_int_overflow= Fun.id
+    ; subst_int_underflow= Fun.id
     ; subst_user_input= Fun.id
     ; subst_traces= Fun.id }
 
@@ -354,6 +375,7 @@ module Val = struct
     { powloc: PowLocWithIdx.t
     ; init: Init.t
     ; int_overflow: IntOverflow.t
+    ; int_underflow: IntUnderflow.t
     ; user_input: UserInput.t
     ; str: Str.t
     ; traces: (TraceSet.t[@compare.ignore]) }
@@ -363,6 +385,7 @@ module Val = struct
     { powloc= PowLocWithIdx.bottom
     ; init= Init.bottom
     ; int_overflow= IntOverflow.bottom
+    ; int_underflow= IntUnderflow.bottom
     ; user_input= UserInput.bottom
     ; str= Str.bottom
     ; traces= TraceSet.bottom }
@@ -386,6 +409,8 @@ module Val = struct
 
   let get_int_overflow v = v.int_overflow
 
+  let get_int_underflow v = v.int_underflow
+
   let get_user_input v = v.user_input
 
   let get_traces v = v.traces
@@ -401,6 +426,7 @@ module Val = struct
     { powloc= PowLocWithIdx.join lhs.powloc rhs.powloc
     ; init= Init.join lhs.init rhs.init
     ; int_overflow= IntOverflow.join lhs.int_overflow rhs.int_overflow
+    ; int_underflow= IntUnderflow.join lhs.int_underflow rhs.int_underflow
     ; user_input= UserInput.join lhs.user_input rhs.user_input
     ; str= Str.join lhs.str rhs.str
     ; traces= TraceSet.join lhs.traces rhs.traces }
@@ -410,6 +436,7 @@ module Val = struct
     { powloc= PowLocWithIdx.widen ~prev:prev.powloc ~next:next.powloc ~num_iters
     ; init= Init.widen ~prev:prev.init ~next:next.init ~num_iters
     ; int_overflow= IntOverflow.widen ~prev:prev.int_overflow ~next:next.int_overflow ~num_iters
+    ; int_underflow= IntUnderflow.widen ~prev:prev.int_underflow ~next:next.int_underflow ~num_iters
     ; user_input= UserInput.widen ~prev:prev.user_input ~next:next.user_input ~num_iters
     ; str= Str.widen ~prev:prev.str ~next:next.str ~num_iters
     ; traces= TraceSet.widen ~prev:prev.traces ~next:next.traces ~num_iters }
@@ -419,13 +446,15 @@ module Val = struct
     PowLocWithIdx.leq ~lhs:lhs.powloc ~rhs:rhs.powloc
     && Init.leq ~lhs:lhs.init ~rhs:rhs.init
     && IntOverflow.leq ~lhs:lhs.int_overflow ~rhs:rhs.int_overflow
+    && IntUnderflow.leq ~lhs:lhs.int_underflow ~rhs:rhs.int_underflow
     && UserInput.leq ~lhs:lhs.user_input ~rhs:rhs.user_input
     && Str.leq ~lhs:lhs.str ~rhs:rhs.str
 
 
-  let subst {Subst.subst_int_overflow; subst_user_input; subst_traces} v =
+  let subst {Subst.subst_int_overflow; subst_int_underflow; subst_user_input; subst_traces} v =
     { v with
       int_overflow= subst_int_overflow v.int_overflow
+    ; int_underflow= subst_int_underflow v.int_underflow
     ; user_input= subst_user_input v.user_input
     ; traces= subst_traces v.traces }
 
@@ -436,13 +465,16 @@ module Val = struct
     let traces = Trace.make_symbol_decl loc |> Trace.make_singleton |> TraceSet.singleton in
     let user_input = UserInput.make_symbol p in
     let int_overflow = IntOverflow.make_symbol p in
-    {bottom with powloc; int_overflow; user_input; traces}
+    let int_underflow = IntUnderflow.make_symbol p in
+    {bottom with powloc; int_overflow; int_underflow; user_input; traces}
 
 
   let pp fmt v =
-    F.fprintf fmt "{powloc: %a, init: %a, int_overflow: %a, user_input: %a, str: %a, traces: %a}"
-      PowLocWithIdx.pp v.powloc Init.pp v.init IntOverflow.pp v.int_overflow UserInput.pp
-      v.user_input Str.pp v.str TraceSet.pp v.traces
+    F.fprintf fmt
+      "{powloc: %a, init: %a, int_overflow: %a, int_underflow: %a, user_input: %a, str: %a, \
+       traces: %a}"
+      PowLocWithIdx.pp v.powloc Init.pp v.init IntOverflow.pp v.int_overflow IntUnderflow.pp
+      v.int_underflow UserInput.pp v.user_input Str.pp v.str TraceSet.pp v.traces
 end
 
 module Mem = struct
@@ -468,9 +500,10 @@ module Mem = struct
           let loc = p |> Allocsite.make_symbol |> Loc.of_allocsite in
           let powloc = loc |> LocWithIdx.of_loc |> PowLocWithIdx.singleton in
           let int_overflow = IntOverflow.make_symbol p in
+          let int_underflow = IntUnderflow.make_symbol p in
           let user_input = UserInput.make_symbol p in
           let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
-          ({bottom with powloc; int_overflow; user_input; traces}, mem)
+          ({bottom with powloc; int_overflow; int_underflow; user_input; traces}, mem)
       | Some ({Typ.desc= Tptr _} as typ) ->
           L.d_printfln_escaped "Val.on_demand for %a (%s)" LocWithIdx.pp loc (Typ.to_string typ) ;
           L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
@@ -488,10 +521,11 @@ module Mem = struct
       | Some typ ->
           L.d_printfln_escaped "Val.on_demand for %a (%a)" LocWithIdx.pp loc (Typ.pp Pp.text) typ ;
           let int_overflow = IntOverflow.make_symbol p in
+          let int_underflow = IntUnderflow.make_symbol p in
           let user_input = UserInput.make_symbol p in
           let loc = Allocsite.make_symbol p |> Loc.of_allocsite in
           let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
-          ({bottom with int_overflow; user_input; traces}, mem)
+          ({bottom with int_overflow; int_underflow; user_input; traces}, mem)
       | None ->
           L.(debug Analysis Verbose) "Unknown: %a\n" SPath.pp_partial p ;
           L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
@@ -546,8 +580,14 @@ module Cond = struct
         ; loc: Location.t
         ; traces: (TraceSet.t[@compare.ignore])
         ; reported: bool }
-    | Overflow of
+    | IntOverflow of
         { size: IntOverflow.t
+        ; user_input_elem: UserInput.Elem.t
+        ; loc: Location.t
+        ; traces: (TraceSet.t[@compare.ignore])
+        ; reported: bool }
+    | IntUnderflow of
+        { size: IntUnderflow.t
         ; user_input_elem: UserInput.Elem.t
         ; loc: Location.t
         ; traces: (TraceSet.t[@compare.ignore])
@@ -574,7 +614,11 @@ module Cond = struct
 
 
   let make_overflow {Val.int_overflow; traces} user_input_elem loc =
-    Overflow {size= int_overflow; user_input_elem; loc; traces; reported= false}
+    IntOverflow {size= int_overflow; user_input_elem; loc; traces; reported= false}
+
+
+  let make_underflow {Val.int_underflow; traces} user_input_elem loc =
+    IntUnderflow {size= int_underflow; user_input_elem; loc; traces; reported= false}
 
 
   let make_format {Val.traces} user_input_elem loc =
@@ -592,8 +636,10 @@ module Cond = struct
   let reported = function
     | UnInit cond ->
         UnInit {cond with reported= true}
-    | Overflow cond ->
-        Overflow {cond with reported= true}
+    | IntOverflow cond ->
+        IntOverflow {cond with reported= true}
+    | IntUnderflow cond ->
+        IntUnderflow {cond with reported= true}
     | Format cond ->
         Format {cond with reported= true}
     | BufferOverflow cond ->
@@ -605,7 +651,7 @@ module Cond = struct
   let is_symbolic = function
     | UnInit cond ->
         LocWithIdx.is_symbolic cond.absloc
-    | Overflow _ | Format _ | BufferOverflow _ | Exec _ ->
+    | IntOverflow _ | IntUnderflow _ | Format _ | BufferOverflow _ | Exec _ ->
         (* TODO *)
         false
 
@@ -613,7 +659,9 @@ module Cond = struct
   let get_location = function
     | UnInit cond ->
         cond.loc
-    | Overflow cond ->
+    | IntOverflow cond ->
+        cond.loc
+    | IntUnderflow cond ->
         cond.loc
     | Format cond ->
         cond.loc
@@ -626,7 +674,9 @@ module Cond = struct
   let is_reported = function
     | UnInit cond ->
         cond.reported
-    | Overflow cond ->
+    | IntOverflow cond ->
+        cond.reported
+    | IntUnderflow cond ->
         cond.reported
     | Format cond ->
         cond.reported
@@ -639,14 +689,23 @@ module Cond = struct
   let is_init = function UnInit cond -> Init.equal Init.Init cond.init | _ -> false
 
   let may_overflow = function
-    | Overflow cond ->
+    | IntOverflow cond ->
         IntOverflow.is_top cond.size && UserInput.Elem.is_source cond.user_input_elem
     | _ ->
         false
 
 
+  let may_underflow = function
+    | IntUnderflow cond ->
+        IntUnderflow.is_top cond.size && UserInput.Elem.is_source cond.user_input_elem
+    | _ ->
+        false
+
+
   let is_user_input = function
-    | Overflow cond ->
+    | IntOverflow cond ->
+        UserInput.Elem.is_source cond.user_input_elem
+    | IntUnderflow cond ->
         UserInput.Elem.is_source cond.user_input_elem
     | Format cond ->
         UserInput.Elem.is_source cond.user_input_elem
@@ -660,7 +719,9 @@ module Cond = struct
 
   let extract_user_input cond =
     match cond with
-    | Overflow cond ->
+    | IntOverflow cond ->
+        Some cond.user_input_elem
+    | IntUnderflow cond ->
         Some cond.user_input_elem
     | Format cond ->
         Some cond.user_input_elem
@@ -672,7 +733,9 @@ module Cond = struct
         None
 
 
-  let subst {Subst.subst_powloc; subst_int_overflow; subst_user_input; subst_traces} mem = function
+  let subst
+      {Subst.subst_powloc; subst_int_overflow; subst_int_underflow; subst_user_input; subst_traces}
+      mem = function
     | UnInit cond -> (
       match cond.absloc with
       | Loc l -> (
@@ -697,14 +760,24 @@ module Cond = struct
                 [UnInit {cond with absloc; init}]
             | None ->
                 [UnInit cond] ) )
-    | Overflow cond ->
+    | IntOverflow cond ->
         let substed_user_input_list =
           UserInput.make_elem cond.user_input_elem |> subst_user_input |> UserInput.to_list
         in
         List.map substed_user_input_list ~f:(fun elem ->
-            Overflow
+            IntOverflow
               { cond with
                 size= subst_int_overflow cond.size
+              ; user_input_elem= elem
+              ; traces= subst_traces cond.traces })
+    | IntUnderflow cond ->
+        let substed_user_input_list =
+          UserInput.make_elem cond.user_input_elem |> subst_user_input |> UserInput.to_list
+        in
+        List.map substed_user_input_list ~f:(fun elem ->
+            IntUnderflow
+              { cond with
+                size= subst_int_underflow cond.size
               ; user_input_elem= elem
               ; traces= subst_traces cond.traces })
     | Format cond ->
@@ -731,7 +804,10 @@ module Cond = struct
     | UnInit cond ->
         F.fprintf fmt "{absloc: %a, init: %a, loc: %a, traces: %a}" LocWithIdx.pp cond.absloc
           Init.pp cond.init Location.pp cond.loc TraceSet.pp cond.traces
-    | Overflow cond ->
+    | IntOverflow cond ->
+        F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
+          Location.pp cond.loc TraceSet.pp cond.traces
+    | IntUnderflow cond ->
         F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
           Location.pp cond.loc TraceSet.pp cond.traces
     | Format cond ->
@@ -770,6 +846,22 @@ module CondSet = struct
             v.traces
         in
         add (Cond.make_overflow {v with traces} user_input_elem loc) cs)
+
+
+  let make_underflow (v : Val.t) loc =
+    let user_input_list = UserInput.to_list v.user_input in
+    List.fold user_input_list ~init:bottom ~f:(fun cs user_input_elem ->
+        let traces =
+          TraceSet.filter
+            (fun tr ->
+              match user_input_elem with
+              | UserInput.Elem.Source (_, src_loc) ->
+                  Trace.src_may_match src_loc tr
+              | UserInput.Elem.Symbol _ ->
+                  true)
+            v.traces
+        in
+        add (Cond.make_underflow {v with traces} user_input_elem loc) cs)
 
 
   let make_format (v : Val.t) loc =

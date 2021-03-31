@@ -181,8 +181,25 @@ let make_subst_int_overflow p exp typ_exp location bo_mem mem subst_int_overflow
   |> subst_int_overflow
 
 
+let make_subst_int_underflow p exp typ_exp location bo_mem mem subst_int_underflow s =
+  ( match s with
+  | Dom.IntOverflow.Symbol sym -> (
+    match symbol_subst sym p exp typ_exp location bo_mem mem with
+    | Some v ->
+        Dom.Val.get_int_underflow v
+    | None ->
+        s )
+  | _ ->
+      s )
+  |> subst_int_underflow
+
+
 let rec make_subst callee_pname formals actuals location bo_mem mem
-    ({Dom.Subst.subst_powloc; subst_int_overflow; subst_user_input; subst_traces} as subst) =
+    ( { Dom.Subst.subst_powloc
+      ; subst_int_overflow
+      ; subst_int_underflow
+      ; subst_user_input
+      ; subst_traces } as subst ) =
   match (formals, actuals) with
   | (pvar, _) :: t1, (exp, typ_exp) :: t2 -> (
     match pvar |> Loc.of_pvar |> Loc.get_path with
@@ -194,6 +211,8 @@ let rec make_subst callee_pname formals actuals location bo_mem mem
         { Dom.Subst.subst_powloc
         ; subst_int_overflow=
             make_subst_int_overflow p exp typ_exp location bo_mem mem subst_int_overflow
+        ; subst_int_underflow=
+            make_subst_int_underflow p exp typ_exp location bo_mem mem subst_int_underflow
         ; subst_user_input= make_subst_user_input p exp typ_exp location bo_mem mem subst_user_input
         ; subst_traces=
             make_subst_traces callee_pname p exp typ_exp location bo_mem mem subst_traces }
@@ -479,9 +498,11 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
       if Dom.Cond.is_symbolic cond || Dom.Cond.is_reported cond then Dom.CondSet.add cond condset
       else
         let loc = Dom.Cond.get_location cond in
+        L.(debug Analysis Verbose) "alarm start %a\n" Location.pp loc ;
         let report_src_sink_pair cond ~ltr_set (bug_type : string) =
           match Dom.Cond.extract_user_input cond with
           | Some (Source (_, src_loc)) ->
+              L.(debug Analysis Verbose) "alarm %a\n" Location.pp src_loc ;
               let src_loc' =
                 Jsonbug_t.
                   { file= SourceFile.to_string src_loc.file
@@ -500,15 +521,21 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
               Reporting.log_issue proc_desc err_log ~loc ~ltr_set ~extras APIMisuse
                 IssueType.api_misuse bug_type
           | _ ->
+              L.(debug Analysis Verbose) "no alarm \n" ;
               ()
         in
         match cond with
         | Dom.Cond.UnInit _ when Dom.Cond.is_init cond |> not ->
             Reporting.log_issue proc_desc err_log ~loc APIMisuse IssueType.api_misuse "UnInit" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
-        | Dom.Cond.Overflow c when Dom.Cond.may_overflow cond ->
+        | Dom.Cond.IntOverflow c when Dom.Cond.may_overflow cond ->
             let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
-            report_src_sink_pair cond ~ltr_set "Overflow" ;
+            report_src_sink_pair cond ~ltr_set "IntOverflow" ;
+            Dom.CondSet.add (Dom.Cond.reported cond) condset
+        | Dom.Cond.IntUnderflow c when Dom.Cond.may_underflow cond ->
+            L.(debug Analysis Verbose) "may under flow alarm \n" ;
+            let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
+            report_src_sink_pair cond ~ltr_set "IntUnderflow" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
         | Dom.Cond.Format c when Dom.Cond.is_user_input cond ->
             let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
@@ -523,6 +550,7 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
             report_src_sink_pair cond ~ltr_set "Exec" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
         | _ ->
+            L.(debug Analysis Verbose) "no may under flow alarm \n" ;
             Dom.CondSet.add cond condset)
     condset Dom.CondSet.empty
 

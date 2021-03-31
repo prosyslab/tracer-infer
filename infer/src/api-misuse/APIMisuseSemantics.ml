@@ -55,26 +55,11 @@ let check_no_overflow bop e1 e2 =
       Exp.is_zero e1 || Exp.is_zero e2
   | Binop.Mult _ ->
       is_one e1 || is_one e2
-  | Binop.PlusPI
-  | Binop.MinusA _
-  | Binop.MinusPI
-  | Binop.MinusPP
-  | Binop.Div
-  | Binop.Mod
-  | Binop.Shiftrt
-  | Binop.Lt
-  | Binop.Gt
-  | Binop.Le
-  | Binop.Ge
-  | Binop.Eq
-  | Binop.Ne
-  | Binop.BAnd
-  | Binop.BXor
-  | Binop.BOr
-  | Binop.LAnd
-  | Binop.LOr ->
+  | _ ->
       true
 
+
+let check_no_underflow bop e2 = match bop with Binop.MinusA _ -> Exp.is_zero e2 | _ -> true
 
 let rec eval_locs exp _ bo_mem mem =
   match exp with
@@ -133,6 +118,20 @@ and eval_binop _ bop e1 e2 loc bo_mem mem =
       ; Val.init= Dom.Init.join v1.Val.init v2.Val.init
       ; user_input= Dom.UserInput.join v1.Val.user_input v2.Val.user_input
       ; int_overflow= Dom.IntOverflow.join (overflow v1) (overflow v2)
+      ; int_underflow= Dom.IntUnderflow.join v1.Val.int_underflow v2.Val.int_underflow
+      ; traces }
+  | Binop.MinusA _ when not (check_no_underflow bop e2) ->
+      let underflow v =
+        if v.Val.user_input |> Dom.UserInput.is_taint || v.Val.user_input |> Dom.UserInput.is_symbol
+        then Dom.IntUnderflow.top
+        else Dom.IntUnderflow.bottom
+      in
+      { Val.bottom with
+        powloc= Dom.PowLocWithIdx.join v1.Val.powloc v2.Val.powloc
+      ; Val.init= Dom.Init.join v1.Val.init v2.Val.init
+      ; user_input= Dom.UserInput.join v1.Val.user_input v2.Val.user_input
+      ; int_overflow= Dom.IntOverflow.join v1.Val.int_overflow v2.Val.int_overflow
+      ; int_underflow= Dom.IntUnderflow.join (underflow v1) (underflow v2)
       ; traces }
   | _ ->
       { Val.bottom with
@@ -140,6 +139,7 @@ and eval_binop _ bop e1 e2 loc bo_mem mem =
       ; Val.init= Dom.Init.join v1.Val.init v2.Val.init
       ; user_input= Dom.UserInput.join v1.Val.user_input v2.Val.user_input
       ; int_overflow= Dom.IntOverflow.join v1.Val.int_overflow v2.Val.int_overflow
+      ; int_underflow= Dom.IntUnderflow.join v1.Val.int_underflow v2.Val.int_underflow
       ; traces }
 
 

@@ -12,6 +12,7 @@ module Trace = struct
     | Malloc of Location.t
     | Printf of Location.t
     | Sprintf of Location.t
+    | Underflow of Procname.t * Location.t
     | Exec of Location.t
   [@@deriving compare, yojson_of]
 
@@ -32,6 +33,8 @@ module Trace = struct
   let make_call pname loc = Call (pname, loc)
 
   let make_malloc loc = Malloc loc
+
+  let make_underflow pname loc = Underflow (pname, loc)
 
   let make_symbol_decl l = SymbolDecl l
 
@@ -65,6 +68,9 @@ module Trace = struct
       | Malloc l :: t ->
           let desc = "malloc" in
           Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
+      | Underflow (pname, l) :: t ->
+          let desc = String.concat ~sep ["underflow"; Procname.to_string pname] in
+          Errlog.make_trace_element (depth + 1) l desc [] :: tail |> make_err_trace_rec depth t
       | Printf l :: t ->
           let desc = "printf" in
           Errlog.make_trace_element depth l desc [] :: tail |> make_err_trace_rec depth t
@@ -104,6 +110,8 @@ module Trace = struct
         F.fprintf fmt "Call (%a)" Location.pp l
     | Malloc l ->
         F.fprintf fmt "Malloc (%a)" Location.pp l
+    | Underflow (_, l) ->
+        F.fprintf fmt "Underflow (%a)" Location.pp l
     | Printf l ->
         F.fprintf fmt "Printf (%a)" Location.pp l
     | Sprintf l ->
