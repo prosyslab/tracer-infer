@@ -89,7 +89,7 @@ let getenv _ =
   {exec; check= empty_check_fun}
 
 
-let malloc size =
+let malloc pname size =
   let exec {bo_mem_opt} ~ret:_ (mem : Sem.Mem.t) =
     match bo_mem_opt with
     | Some bomem ->
@@ -115,18 +115,19 @@ let malloc size =
   let check {location; bo_mem_opt} mem condset =
     let v =
       Sem.eval size location bo_mem_opt mem
-      |> Dom.Val.append_trace_elem (Trace.make_malloc location)
+      |> Dom.Val.append_trace_elem
+           (Trace.make_int_overflow (Procname.from_string_c_fun pname) location)
     in
     Dom.CondSet.union (Dom.CondSet.make_overflow v location) condset
   in
   {exec; check}
 
 
-let realloc _ size = malloc size
+let realloc _ size = malloc "realloc" size
 
 let calloc n size =
   let malloc_size = Exp.BinOp (Binop.Mult (Some Typ.IUInt), n, size) in
-  malloc malloc_size
+  malloc "calloc" malloc_size
 
 
 let strdup str =
@@ -153,7 +154,7 @@ let strcpy dst src =
   {exec; check= empty_check_fun}
 
 
-let memcpy dst src len =
+let memcpy pname dst src len =
   let exec {bo_mem_opt; location} ~ret:_ mem =
     let src_locs = Sem.eval_locs src location bo_mem_opt mem in
     let src_deref_v =
@@ -164,21 +165,23 @@ let memcpy dst src len =
     let dst_locs = Sem.eval_locs dst location bo_mem_opt mem in
     Dom.PowLocWithIdx.fold (fun loc m -> Dom.Mem.add loc src_deref_v m) dst_locs mem
   in
-  let check {pname; location; bo_mem_opt} mem condset =
+  let check {location; bo_mem_opt} mem condset =
     let v =
       Sem.eval len location bo_mem_opt mem
-      |> Dom.Val.append_trace_elem (Trace.make_underflow pname location)
+      |> Dom.Val.append_trace_elem
+           (Trace.make_int_underflow (Procname.from_string_c_fun pname) location)
     in
     Dom.CondSet.union (Dom.CondSet.make_underflow v location) condset
   in
   {exec; check}
 
 
-let memset _ _ len =
-  let check {pname; location; bo_mem_opt} mem condset =
+let memset pname _ _ len =
+  let check {location; bo_mem_opt} mem condset =
     let v =
       Sem.eval len location bo_mem_opt mem
-      |> Dom.Val.append_trace_elem (Trace.make_underflow pname location)
+      |> Dom.Val.append_trace_elem
+           (Trace.make_int_underflow (Procname.from_string_c_fun pname) location)
     in
     Dom.CondSet.union (Dom.CondSet.make_underflow v location) condset
   in
@@ -194,7 +197,7 @@ let strtok src =
   {exec; check= empty_check_fun}
 
 
-let printf str =
+let printf pname str =
   let check {location; bo_mem_opt} mem condset =
     let v = Sem.eval str location bo_mem_opt mem in
     let v_powloc = v |> Dom.Val.get_powloc in
@@ -202,22 +205,24 @@ let printf str =
       Dom.PowLocWithIdx.fold
         (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
         v_powloc Dom.Val.bottom
-      |> Dom.Val.append_trace_elem (Trace.make_printf location)
+      |> Dom.Val.append_trace_elem
+           (Trace.make_format_string (Procname.from_string_c_fun pname) location)
     in
     Dom.CondSet.union (Dom.CondSet.make_format user_input_val location) condset
   in
   {exec= empty_exec_fun; check}
 
 
-let sprintf _ str args =
-  let printf_model = printf str in
-  let check env mem condset =
-    let sprintf_trace_elem = Trace.make_spritnf env.location in
+let sprintf pname _ str args =
+  let printf_model = printf pname str in
+  let check ({location; bo_mem_opt} as env) mem condset =
+    let sprintf_trace_elem =
+      Trace.make_buffer_overflow (Procname.from_string_c_fun pname) location
+    in
     List.fold args
       ~f:(fun cdset ProcnameDispatcher.Call.FuncArg.{exp} ->
         let v =
-          Sem.eval exp env.location env.bo_mem_opt mem
-          |> Dom.Val.append_trace_elem sprintf_trace_elem
+          Sem.eval exp env.location bo_mem_opt mem |> Dom.Val.append_trace_elem sprintf_trace_elem
         in
         let v_powloc = v |> Dom.Val.get_powloc in
         let deref_user_input_v =
@@ -234,9 +239,9 @@ let sprintf _ str args =
   {exec= empty_exec_fun; check}
 
 
-let snprintf _ _ str args = sprintf Exp.null str args
+let snprintf pname _ _ str args = sprintf pname Exp.null str args
 
-let fprintf _ str = printf str
+let fprintf pname _ str = printf pname str
 
 let gnutls_x509_crt_get_subject_alt_name _ _ ret_addr =
   let exec {node; location; bo_mem_opt} ~ret:_ mem =
@@ -338,7 +343,7 @@ let atoi str =
   {exec; check= empty_check_fun}
 
 
-let system str =
+let system pname str =
   let check {location; bo_mem_opt} mem condset =
     let v = Sem.eval str location bo_mem_opt mem in
     let v_powloc = v |> Dom.Val.get_powloc in
@@ -346,7 +351,8 @@ let system str =
       Dom.PowLocWithIdx.fold
         (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
         v_powloc Dom.Val.bottom
-      |> Dom.Val.append_trace_elem (Trace.make_exec location)
+      |> Dom.Val.append_trace_elem
+           (Trace.make_cmd_injection (Procname.from_string_c_fun pname) location)
     in
     Dom.CondSet.union (Dom.CondSet.make_exec user_input_val location) condset
   in
@@ -536,17 +542,17 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"std" &:: "basic_string" < any_typ &+...>:: "basic_string" &::.*--> empty
     ; -"fread" <>$ capt_exp $+...$--> fread
     ; -"fgets" <>$ capt_exp $+...$--> fread
-    ; -"malloc" <>$ capt_exp $--> malloc
-    ; -"g_malloc" <>$ capt_exp $--> malloc
-    ; -"__new_array" <>$ capt_exp $--> malloc
+    ; -"malloc" <>$ capt_exp $--> malloc "malloc"
+    ; -"g_malloc" <>$ capt_exp $--> malloc "g_malloc"
+    ; -"__new_array" <>$ capt_exp $--> malloc "__new_array"
     ; -"realloc" <>$ capt_exp $+ capt_exp $+...$--> realloc
     ; -"calloc" <>$ capt_exp $+ capt_exp $+...$--> calloc
-    ; -"printf" <>$ capt_exp $+...$--> printf
-    ; -"sprintf" <>$ capt_exp $+ capt_exp $++$--> sprintf
-    ; -"snprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $++$--> snprintf
-    ; -"vsprintf" <>$ capt_exp $+ capt_exp $++$--> sprintf
-    ; -"vsnprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $++$--> snprintf
-    ; -"fprintf" <>$ capt_exp $+ capt_exp $--> fprintf
+    ; -"printf" <>$ capt_exp $+...$--> printf "printf"
+    ; -"sprintf" <>$ capt_exp $+ capt_exp $++$--> sprintf "sprintf"
+    ; -"snprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $++$--> snprintf "snprintf"
+    ; -"vsprintf" <>$ capt_exp $+ capt_exp $++$--> sprintf "vsprintf"
+    ; -"vsnprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $++$--> snprintf "vsnprintf"
+    ; -"fprintf" <>$ capt_exp $+ capt_exp $--> fprintf "fprintf"
     ; -"getc" <>$ capt_exp $--> getc
     ; -"_IO_getc" <>$ capt_exp $--> getc
     ; -"getenv" <>$ capt_exp $--> getenv
@@ -554,18 +560,18 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"strtok" <>$ capt_exp $+...$--> strtok
     ; -"strdup" <>$ capt_exp $--> strdup
     ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy
-    ; -"memcpy" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> memcpy
-    ; -"memset" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> memset
+    ; -"memcpy" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> memcpy "memcpy"
+    ; -"memset" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> memset "memset"
     ; -"gnutls_x509_crt_get_subject_alt_name"
       <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> gnutls_x509_crt_get_subject_alt_name
     ; -"readdir" <>$ capt_exp $--> readdir
     ; -"getopt" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> getopt
     ; -"atoi" <>$ capt_exp $--> atoi
-    ; -"system" <>$ capt_exp $--> system
-    ; -"execl" <>$ capt_exp $+...$--> system
-    ; -"execv" <>$ capt_exp $+...$--> system
-    ; -"execle" <>$ capt_exp $+...$--> system
-    ; -"execve" <>$ capt_exp $+...$--> system
-    ; -"execlp" <>$ capt_exp $+...$--> system
-    ; -"execvp" <>$ capt_exp $+...$--> system
+    ; -"system" <>$ capt_exp $--> system "system"
+    ; -"execl" <>$ capt_exp $+...$--> system "execl"
+    ; -"execv" <>$ capt_exp $+...$--> system "execv"
+    ; -"execle" <>$ capt_exp $+...$--> system "execle"
+    ; -"execve" <>$ capt_exp $+...$--> system "execve"
+    ; -"execlp" <>$ capt_exp $+...$--> system "execlp"
+    ; -"execvp" <>$ capt_exp $+...$--> system "execev"
     ; -"__infer_print__" <>$ capt_exp $--> infer_print ]
