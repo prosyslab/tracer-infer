@@ -592,7 +592,7 @@ module Cond = struct
         ; loc: Location.t
         ; traces: (TraceSet.t[@compare.ignore])
         ; reported: bool }
-    | Format of
+    | FormatString of
         { user_input_elem: UserInput.Elem.t
         ; loc: Location.t
         ; traces: (TraceSet.t[@compare.ignore])
@@ -602,7 +602,7 @@ module Cond = struct
         ; loc: Location.t
         ; traces: (TraceSet.t[@compare.ignore])
         ; reported: bool }
-    | Exec of
+    | CmdInjection of
         { user_input_elem: UserInput.Elem.t
         ; loc: Location.t
         ; traces: (TraceSet.t[@compare.ignore])
@@ -622,7 +622,7 @@ module Cond = struct
 
 
   let make_format {Val.traces} user_input_elem loc =
-    Format {user_input_elem; loc; traces; reported= false}
+    FormatString {user_input_elem; loc; traces; reported= false}
 
 
   let make_buffer_overflow {Val.traces} user_input_elem loc =
@@ -630,7 +630,7 @@ module Cond = struct
 
 
   let make_exec {Val.traces} user_input_elem loc =
-    Exec {user_input_elem; loc; traces; reported= false}
+    CmdInjection {user_input_elem; loc; traces; reported= false}
 
 
   let reported = function
@@ -640,18 +640,18 @@ module Cond = struct
         IntOverflow {cond with reported= true}
     | IntUnderflow cond ->
         IntUnderflow {cond with reported= true}
-    | Format cond ->
-        Format {cond with reported= true}
+    | FormatString cond ->
+        FormatString {cond with reported= true}
     | BufferOverflow cond ->
         BufferOverflow {cond with reported= true}
-    | Exec cond ->
-        Exec {cond with reported= true}
+    | CmdInjection cond ->
+        CmdInjection {cond with reported= true}
 
 
   let is_symbolic = function
     | UnInit cond ->
         LocWithIdx.is_symbolic cond.absloc
-    | IntOverflow _ | IntUnderflow _ | Format _ | BufferOverflow _ | Exec _ ->
+    | IntOverflow _ | IntUnderflow _ | FormatString _ | BufferOverflow _ | CmdInjection _ ->
         (* TODO *)
         false
 
@@ -663,11 +663,11 @@ module Cond = struct
         cond.loc
     | IntUnderflow cond ->
         cond.loc
-    | Format cond ->
+    | FormatString cond ->
         cond.loc
     | BufferOverflow cond ->
         cond.loc
-    | Exec cond ->
+    | CmdInjection cond ->
         cond.loc
 
 
@@ -678,11 +678,11 @@ module Cond = struct
         cond.reported
     | IntUnderflow cond ->
         cond.reported
-    | Format cond ->
+    | FormatString cond ->
         cond.reported
     | BufferOverflow cond ->
         cond.reported
-    | Exec cond ->
+    | CmdInjection cond ->
         cond.reported
 
 
@@ -707,11 +707,11 @@ module Cond = struct
         UserInput.Elem.is_source cond.user_input_elem
     | IntUnderflow cond ->
         UserInput.Elem.is_source cond.user_input_elem
-    | Format cond ->
+    | FormatString cond ->
         UserInput.Elem.is_source cond.user_input_elem
     | BufferOverflow cond ->
         UserInput.Elem.is_source cond.user_input_elem
-    | Exec cond ->
+    | CmdInjection cond ->
         UserInput.Elem.is_source cond.user_input_elem
     | UnInit _ ->
         false
@@ -723,11 +723,11 @@ module Cond = struct
         Some cond.user_input_elem
     | IntUnderflow cond ->
         Some cond.user_input_elem
-    | Format cond ->
+    | FormatString cond ->
         Some cond.user_input_elem
     | BufferOverflow cond ->
         Some cond.user_input_elem
-    | Exec cond ->
+    | CmdInjection cond ->
         Some cond.user_input_elem
     | UnInit _ ->
         None
@@ -780,24 +780,24 @@ module Cond = struct
                 size= subst_int_underflow cond.size
               ; user_input_elem= elem
               ; traces= subst_traces cond.traces })
-    | Format cond ->
+    | FormatString cond ->
         let substed_user_input_list =
           UserInput.make_elem cond.user_input_elem |> subst_user_input |> UserInput.to_list
         in
         List.map substed_user_input_list ~f:(fun elem ->
-            Format {cond with user_input_elem= elem; traces= subst_traces cond.traces})
+            FormatString {cond with user_input_elem= elem; traces= subst_traces cond.traces})
     | BufferOverflow cond ->
         let substed_user_input_list =
           UserInput.make_elem cond.user_input_elem |> subst_user_input |> UserInput.to_list
         in
         List.map substed_user_input_list ~f:(fun elem ->
             BufferOverflow {cond with user_input_elem= elem; traces= subst_traces cond.traces})
-    | Exec cond ->
+    | CmdInjection cond ->
         let substed_user_input_list =
           UserInput.make_elem cond.user_input_elem |> subst_user_input |> UserInput.to_list
         in
         List.map substed_user_input_list ~f:(fun elem ->
-            Exec {cond with user_input_elem= elem; traces= subst_traces cond.traces})
+            CmdInjection {cond with user_input_elem= elem; traces= subst_traces cond.traces})
 
 
   let pp fmt = function
@@ -810,13 +810,13 @@ module Cond = struct
     | IntUnderflow cond ->
         F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
           Location.pp cond.loc TraceSet.pp cond.traces
-    | Format cond ->
+    | FormatString cond ->
         F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
           Location.pp cond.loc TraceSet.pp cond.traces
     | BufferOverflow cond ->
         F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
           Location.pp cond.loc TraceSet.pp cond.traces
-    | Exec cond ->
+    | CmdInjection cond ->
         F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
           Location.pp cond.loc TraceSet.pp cond.traces
 end

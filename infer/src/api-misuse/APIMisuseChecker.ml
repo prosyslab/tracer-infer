@@ -537,17 +537,17 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
             let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
             report_src_sink_pair cond ~ltr_set "IntUnderflow" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
-        | Dom.Cond.Format c when Dom.Cond.is_user_input cond ->
+        | Dom.Cond.FormatString c when Dom.Cond.is_user_input cond ->
             let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
-            report_src_sink_pair cond ~ltr_set "Format" ;
+            report_src_sink_pair cond ~ltr_set "FormatString" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
         | Dom.Cond.BufferOverflow c when Dom.Cond.is_user_input cond ->
             let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
             report_src_sink_pair cond ~ltr_set "BufferOverflow" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
-        | Dom.Cond.Exec c when Dom.Cond.is_user_input cond ->
+        | Dom.Cond.CmdInjection c when Dom.Cond.is_user_input cond ->
             let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
-            report_src_sink_pair cond ~ltr_set "Exec" ;
+            report_src_sink_pair cond ~ltr_set "CmdInjection" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
         | _ ->
             L.(debug Analysis Verbose) "no may under flow alarm \n" ;
