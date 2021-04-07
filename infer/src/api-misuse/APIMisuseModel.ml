@@ -116,7 +116,7 @@ let malloc pname size =
     let v =
       Sem.eval size location bo_mem_opt mem
       |> Dom.Val.append_trace_elem
-           (Trace.make_int_overflow (Procname.from_string_c_fun pname) location)
+           (Trace.make_int_overflow (Procname.from_string_c_fun pname) size location)
     in
     Dom.CondSet.union (Dom.CondSet.make_overflow v location) condset
   in
@@ -169,7 +169,7 @@ let memcpy pname dst src len =
     let v =
       Sem.eval len location bo_mem_opt mem
       |> Dom.Val.append_trace_elem
-           (Trace.make_int_underflow (Procname.from_string_c_fun pname) location)
+           (Trace.make_int_underflow (Procname.from_string_c_fun pname) len location)
     in
     Dom.CondSet.union (Dom.CondSet.make_underflow v location) condset
   in
@@ -181,7 +181,7 @@ let memset pname _ _ len =
     let v =
       Sem.eval len location bo_mem_opt mem
       |> Dom.Val.append_trace_elem
-           (Trace.make_int_underflow (Procname.from_string_c_fun pname) location)
+           (Trace.make_int_underflow (Procname.from_string_c_fun pname) len location)
     in
     Dom.CondSet.union (Dom.CondSet.make_underflow v location) condset
   in
@@ -206,7 +206,7 @@ let printf pname str =
         (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
         v_powloc Dom.Val.bottom
       |> Dom.Val.append_trace_elem
-           (Trace.make_format_string (Procname.from_string_c_fun pname) location)
+           (Trace.make_format_string (Procname.from_string_c_fun pname) str location)
     in
     Dom.CondSet.union (Dom.CondSet.make_format user_input_val location) condset
   in
@@ -216,11 +216,11 @@ let printf pname str =
 let sprintf pname _ str args =
   let printf_model = printf pname str in
   let check ({location; bo_mem_opt} as env) mem condset =
-    let sprintf_trace_elem =
-      Trace.make_buffer_overflow (Procname.from_string_c_fun pname) location
-    in
     List.fold args
       ~f:(fun cdset ProcnameDispatcher.Call.FuncArg.{exp} ->
+        let sprintf_trace_elem =
+          Trace.make_buffer_overflow (Procname.from_string_c_fun pname) exp location
+        in
         let v =
           Sem.eval exp env.location bo_mem_opt mem |> Dom.Val.append_trace_elem sprintf_trace_elem
         in
@@ -352,7 +352,7 @@ let system pname str =
         (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
         v_powloc Dom.Val.bottom
       |> Dom.Val.append_trace_elem
-           (Trace.make_cmd_injection (Procname.from_string_c_fun pname) location)
+           (Trace.make_cmd_injection (Procname.from_string_c_fun pname) str location)
     in
     Dom.CondSet.union (Dom.CondSet.make_exec user_input_val location) condset
   in

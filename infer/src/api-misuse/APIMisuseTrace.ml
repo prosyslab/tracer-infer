@@ -9,11 +9,11 @@ module Trace = struct
     | Store of Exp.t * Exp.t * Location.t
     | Prune of Exp.t * Location.t
     | Call of Procname.t * Location.t
-    | IntOverflow of Procname.t * Location.t
-    | FormatString of Procname.t * Location.t
-    | IntUnderflow of Procname.t * Location.t
-    | CmdInjection of Procname.t * Location.t
-    | BufferOverflow of Procname.t * Location.t
+    | IntOverflow of Procname.t * Exp.t * Location.t
+    | FormatString of Procname.t * Exp.t * Location.t
+    | IntUnderflow of Procname.t * Exp.t * Location.t
+    | CmdInjection of Procname.t * Exp.t * Location.t
+    | BufferOverflow of Procname.t * Exp.t * Location.t
   [@@deriving compare, yojson_of]
 
   type t = elem list [@@deriving compare]
@@ -32,17 +32,17 @@ module Trace = struct
 
   let make_call pname loc = Call (pname, loc)
 
-  let make_int_overflow pname loc = IntOverflow (pname, loc)
+  let make_int_overflow pname e loc = IntOverflow (pname, e, loc)
 
-  let make_int_underflow pname loc = IntUnderflow (pname, loc)
+  let make_int_underflow pname e loc = IntUnderflow (pname, e, loc)
 
   let make_symbol_decl l = SymbolDecl l
 
-  let make_format_string pname loc = FormatString (pname, loc)
+  let make_format_string pname e loc = FormatString (pname, e, loc)
 
-  let make_cmd_injection pname loc = CmdInjection (pname, loc)
+  let make_cmd_injection pname e loc = CmdInjection (pname, e, loc)
 
-  let make_buffer_overflow pname loc = CmdInjection (pname, loc)
+  let make_buffer_overflow pname e loc = CmdInjection (pname, e, loc)
 
   let of_symbol s = SymbolDecl (Allocsite.make_symbol s |> Loc.of_allocsite)
 
@@ -69,26 +69,46 @@ module Trace = struct
           let feature = `List [`String "Call"; `String (Procname.to_string pname)] in
           Errlog.make_trace_element ~feature (depth + 1) l desc [] :: tail
           |> make_err_trace_rec depth t
-      | IntOverflow (pname, l) :: t ->
-          let desc = String.concat ~sep ["int_overflow"; Procname.to_string pname] in
-          let feature = `List [`String "IntOverflow"; `String (Procname.to_string pname)] in
+      | IntOverflow (pname, e, l) :: t ->
+          let desc =
+            String.concat ~sep ["int_overflow"; Procname.to_string pname; Exp.to_string e]
+          in
+          let feature =
+            `List [`String "IntOverflow"; `String (Procname.to_string pname); Exp.yojson_of_t e]
+          in
           Errlog.make_trace_element ~feature depth l desc [] :: tail |> make_err_trace_rec depth t
-      | IntUnderflow (pname, l) :: t ->
-          let desc = String.concat ~sep ["int_underflow"; Procname.to_string pname] in
-          let feature = `List [`String "IntUnderflow"; `String (Procname.to_string pname)] in
+      | IntUnderflow (pname, e, l) :: t ->
+          let desc =
+            String.concat ~sep ["int_underflow"; Procname.to_string pname; Exp.to_string e]
+          in
+          let feature =
+            `List [`String "IntUnderflow"; `String (Procname.to_string pname); Exp.yojson_of_t e]
+          in
           Errlog.make_trace_element ~feature (depth + 1) l desc [] :: tail
           |> make_err_trace_rec depth t
-      | FormatString (pname, l) :: t ->
-          let desc = String.concat ~sep ["format_string"; Procname.to_string pname] in
-          let feature = `List [`String "FormatString"; `String (Procname.to_string pname)] in
+      | FormatString (pname, e, l) :: t ->
+          let desc =
+            String.concat ~sep ["format_string"; Procname.to_string pname; Exp.to_string e]
+          in
+          let feature =
+            `List [`String "FormatString"; `String (Procname.to_string pname); Exp.yojson_of_t e]
+          in
           Errlog.make_trace_element ~feature depth l desc [] :: tail |> make_err_trace_rec depth t
-      | CmdInjection (pname, l) :: t ->
-          let desc = String.concat ~sep ["cmd_injection"; Procname.to_string pname] in
-          let feature = `List [`String "CmdInjection"; `String (Procname.to_string pname)] in
+      | CmdInjection (pname, e, l) :: t ->
+          let desc =
+            String.concat ~sep ["cmd_injection"; Procname.to_string pname; Exp.to_string e]
+          in
+          let feature =
+            `List [`String "CmdInjection"; `String (Procname.to_string pname); Exp.yojson_of_t e]
+          in
           Errlog.make_trace_element ~feature depth l desc [] :: tail |> make_err_trace_rec depth t
-      | BufferOverflow (pname, l) :: t ->
-          let desc = String.concat ~sep ["buffer_overflow"; Procname.to_string pname] in
-          let feature = `List [`String "BufferOverflow"; `String (Procname.to_string pname)] in
+      | BufferOverflow (pname, e, l) :: t ->
+          let desc =
+            String.concat ~sep ["buffer_overflow"; Procname.to_string pname; Exp.to_string e]
+          in
+          let feature =
+            `List [`String "BufferOverflow"; `String (Procname.to_string pname); Exp.yojson_of_t e]
+          in
           Errlog.make_trace_element ~feature depth l desc [] :: tail |> make_err_trace_rec depth t
       | SymbolDecl _ :: t ->
           make_err_trace_rec depth t tail
@@ -118,15 +138,15 @@ module Trace = struct
         F.fprintf fmt "PruneBinop (%a)" Location.pp l
     | Call (_, l) ->
         F.fprintf fmt "Call (%a)" Location.pp l
-    | IntOverflow (_, l) ->
+    | IntOverflow (_, _, l) ->
         F.fprintf fmt "IntOverflow (%a)" Location.pp l
-    | IntUnderflow (_, l) ->
+    | IntUnderflow (_, _, l) ->
         F.fprintf fmt "IntUnderflow (%a)" Location.pp l
-    | FormatString (_, l) ->
+    | FormatString (_, _, l) ->
         F.fprintf fmt "FormatString (%a)" Location.pp l
-    | CmdInjection (_, l) ->
+    | CmdInjection (_, _, l) ->
         F.fprintf fmt "CmdInjection (%a)" Location.pp l
-    | BufferOverflow (_, l) ->
+    | BufferOverflow (_, _, l) ->
         F.fprintf fmt "BufferOverflow (%a)" Location.pp l
     | SymbolDecl l ->
         F.fprintf fmt "Symbol (%a)" AbsLoc.Loc.pp l
