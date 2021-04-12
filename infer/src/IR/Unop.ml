@@ -15,9 +15,11 @@ type t =
   | Neg  (** Unary minus *)
   | BNot  (** Bitwise complement (~) *)
   | LNot  (** Logical Not (!) *)
-[@@deriving compare, yojson_of]
+[@@deriving compare]
 
 let equal = [%compare.equal: t]
+
+let yojson_of_t = function Neg -> `String "-" | BNot -> `String "~" | LNot -> `String "!"
 
 (** String representation of unary operator. *)
 let to_string = function Neg -> "-" | BNot -> "~" | LNot -> "!"
