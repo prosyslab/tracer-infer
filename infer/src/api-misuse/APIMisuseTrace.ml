@@ -42,7 +42,7 @@ module Trace = struct
 
   let make_cmd_injection pname e loc = CmdInjection (pname, e, loc)
 
-  let make_buffer_overflow pname e loc = CmdInjection (pname, e, loc)
+  let make_buffer_overflow pname e loc = BufferOverflow (pname, e, loc)
 
   let of_symbol s = SymbolDecl (Allocsite.make_symbol s |> Loc.of_allocsite)
 
