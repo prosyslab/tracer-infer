@@ -213,8 +213,28 @@ let printf pname str =
   {exec= empty_exec_fun; check}
 
 
-let sprintf pname _ str args =
+let sprintf pname target str args =
   let printf_model = printf pname str in
+  let exec {location; bo_mem_opt} ~ret mem =
+    match args with
+    | _ :: _ ->
+        let target_val = Sem.eval target location bo_mem_opt mem in
+        let locs = Dom.Val.get_powloc target_val in
+        let v = Dom.Mem.find_set locs mem in
+        let v =
+          List.fold args
+            ~f:(fun v ProcnameDispatcher.Call.FuncArg.{exp} ->
+              let ploc = Sem.eval exp location bo_mem_opt mem |> Dom.Val.get_powloc in
+              let v' = Dom.Mem.find_set ploc mem in
+              Dom.Val.join v v')
+            ~init:v
+        in
+        let retloc = fst ret |> Loc.of_id |> Dom.LocWithIdx.of_loc in
+        Dom.PowLocWithIdx.fold (fun l m -> Dom.Mem.add l v m) locs mem
+        |> Dom.Mem.add retloc target_val
+    | _ ->
+        mem
+  in
   let check ({location; bo_mem_opt} as env) mem condset =
     List.fold args
       ~f:(fun cdset ProcnameDispatcher.Call.FuncArg.{exp} ->
@@ -236,7 +256,7 @@ let sprintf pname _ str args =
       ~init:condset
     |> printf_model.check env mem
   in
-  {exec= empty_exec_fun; check}
+  {exec; check}
 
 
 let snprintf pname _ _ str args = sprintf pname Exp.null str args
