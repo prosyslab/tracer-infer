@@ -60,7 +60,7 @@ let symbol_subst sym p exp typ_exp location bo_mem mem =
   | BufferOverrunField.Prim (SPath.Deref (_, Prim (Deref (_, p2)))) ->
       let deref2_subst_val =
         Dom.PowLocWithIdx.fold
-          (fun l v -> Dom.Mem.find l mem |> Dom.Val.join v)
+          (fun l v -> Dom.Mem.find_on_demand l mem |> Dom.Val.join v)
           powloc Dom.Val.bottom
       in
       L.(debug Analysis Verbose) "v: %a\n" Dom.Val.pp v ;

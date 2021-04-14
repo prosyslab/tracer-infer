@@ -225,7 +225,11 @@ let sprintf pname target str args =
           List.fold args
             ~f:(fun v ProcnameDispatcher.Call.FuncArg.{exp} ->
               let ploc = Sem.eval exp location bo_mem_opt mem |> Dom.Val.get_powloc in
-              let v' = Dom.Mem.find_set ploc mem in
+              let v' =
+                Dom.PowLocWithIdx.fold
+                  (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
+                  ploc Dom.Val.bottom
+              in
               Dom.Val.join v v')
             ~init:v
         in
