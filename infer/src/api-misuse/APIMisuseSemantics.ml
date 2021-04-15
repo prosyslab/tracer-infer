@@ -163,20 +163,23 @@ module Prune = struct
         false
 
 
-  let update_mem_prune_trace root (v : Dom.Val.t) location mem =
+  let update_mem_prune_trace root (v : Dom.Val.t) location alias mem =
     let new_traces = TraceSet.append (Trace.make_prune root location) v.traces in
-    Dom.Mem.map
-      (fun ({traces; _} as iter_v) ->
-        if TraceSet.equal traces v.traces then {iter_v with traces= new_traces} else iter_v)
-      mem
+    let alias_loc = APIMisuseDomain.LocWithIdx.of_loc alias in
+    Dom.Mem.add alias_loc {v with traces= new_traces} mem
 
 
-  let rec eval_prune root exp location is_not bin_op_lst mem =
+  let rec eval_prune root exp location is_not bin_op_lst bo_mem mem =
     match exp with
-    | Exp.Var id ->
+    | Exp.Var id -> (
         let loc = AbsLoc.Loc.of_id id |> Dom.LocWithIdx.of_loc in
         let v = Dom.Mem.find loc mem in
-        update_mem_prune_trace root v location mem
+        let alias_targets = BoDomain.Mem.find_alias_id id bo_mem in
+        match BoDomain.AliasTargets.find_simple_alias alias_targets with
+        | Some alias ->
+            update_mem_prune_trace root v location alias mem
+        | None ->
+            mem )
     | Exp.BinOp (bin_op, e1, e2) ->
         let symmetric_bop = make_sym_bop bin_op in
         let bop1, bop2 =
@@ -184,12 +187,12 @@ module Prune = struct
           else (bin_op, symmetric_bop)
         in
         mem
-        |> eval_prune root e1 location is_not ((bop1, e2 |> exp_is_const_rec) :: bin_op_lst)
-        |> eval_prune root e2 location is_not ((bop2, e1 |> exp_is_const_rec) :: bin_op_lst)
+        |> eval_prune root e1 location is_not ((bop1, e2 |> exp_is_const_rec) :: bin_op_lst) bo_mem
+        |> eval_prune root e2 location is_not ((bop2, e1 |> exp_is_const_rec) :: bin_op_lst) bo_mem
     | Exp.UnOp (Unop.LNot, e, _) ->
-        eval_prune root e location (not is_not) bin_op_lst mem
+        eval_prune root e location (not is_not) bin_op_lst bo_mem mem
     | Exp.UnOp (_, e, _) | Exp.Cast (_, e) ->
-        eval_prune root e location is_not bin_op_lst mem
+        eval_prune root e location is_not bin_op_lst bo_mem mem
     | Exp.Exn _
     | Exp.Closure _
     | Exp.Const _
@@ -200,10 +203,14 @@ module Prune = struct
         mem
 
 
-  let prune exp location mem branch if_kind =
-    match if_kind with
-    | Sil.Ik_if | Sil.Ik_bexp ->
-        eval_prune exp exp location (not branch) [] mem
-    | Sil.Ik_while | Sil.Ik_dowhile | Sil.Ik_for | Sil.Ik_land_lor | Sil.Ik_switch ->
+  let prune exp location bo_mem_opt mem branch if_kind =
+    match (bo_mem_opt : BoDomain.Mem.t AbstractInterpreter.State.t option) with
+    | Some bo_mem -> (
+      match if_kind with
+      | Sil.Ik_if | Sil.Ik_bexp ->
+          eval_prune exp exp location (not branch) [] bo_mem.pre mem
+      | Sil.Ik_while | Sil.Ik_dowhile | Sil.Ik_for | Sil.Ik_land_lor | Sil.Ik_switch ->
+          mem )
+    | None ->
         mem
 end

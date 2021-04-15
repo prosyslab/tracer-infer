@@ -363,7 +363,7 @@ module TransferFunctions = struct
         in
         Dom.Mem.add id_loc v mem
     | Prune (exp, location, branch, if_kind) ->
-        Sem.Prune.prune exp location mem branch if_kind
+        Sem.Prune.prune exp location bo_mem_opt mem branch if_kind
     | Store {e1; e2} ->
         (* e1 can be either PVar or LVar. *)
         let locs1 = Sem.eval_locs e1 location bo_mem_opt mem in
