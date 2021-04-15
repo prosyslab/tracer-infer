@@ -383,8 +383,9 @@ let system pname str =
   {exec= empty_exec_fun; check}
 
 
-let execl pname _ args =
-  let check {location; bo_mem_opt} mem condset =
+let execl pname str args =
+  let system_model = system pname str in
+  let check ({location; bo_mem_opt} as env) mem condset =
     List.fold args
       ~f:(fun condset ProcnameDispatcher.Call.FuncArg.{exp} ->
         let v = Sem.eval exp location bo_mem_opt mem in
@@ -398,6 +399,7 @@ let execl pname _ args =
         in
         Dom.CondSet.union (Dom.CondSet.make_exec user_input_val location) condset)
       ~init:condset
+    |> system_model.check env mem
   in
   {exec= empty_exec_fun; check}
 
