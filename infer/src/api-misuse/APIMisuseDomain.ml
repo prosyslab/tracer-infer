@@ -566,6 +566,10 @@ module Mem = struct
     add k joined_v m
 
 
+  let can_strong_update l = match l with LocWithIdx.Loc l -> Loc.is_var l | _ -> false
+
+  let update k v m = if can_strong_update k then add k v m else weak_update k v m
+
   let remove_temps vars m =
     List.fold_left vars ~init:m ~f:(fun m var ->
         let k = Loc.of_id var |> LocWithIdx.of_loc in

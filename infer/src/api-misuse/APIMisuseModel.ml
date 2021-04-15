@@ -383,6 +383,25 @@ let system pname str =
   {exec= empty_exec_fun; check}
 
 
+let execl pname _ args =
+  let check {location; bo_mem_opt} mem condset =
+    List.fold args
+      ~f:(fun condset ProcnameDispatcher.Call.FuncArg.{exp} ->
+        let v = Sem.eval exp location bo_mem_opt mem in
+        let v_powloc = v |> Dom.Val.get_powloc in
+        let user_input_val =
+          Dom.PowLocWithIdx.fold
+            (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
+            v_powloc Dom.Val.bottom
+          |> Dom.Val.append_trace_elem
+               (Trace.make_cmd_injection (Procname.from_string_c_fun pname) exp location)
+        in
+        Dom.CondSet.union (Dom.CondSet.make_exec user_input_val location) condset)
+      ~init:condset
+  in
+  {exec= empty_exec_fun; check}
+
+
 let infer_print exp =
   let exec {location; bo_mem_opt} ~ret:_ mem =
     let v = Sem.eval exp location bo_mem_opt mem in
@@ -592,7 +611,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"getopt" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> getopt
     ; -"atoi" <>$ capt_exp $--> atoi
     ; -"system" <>$ capt_exp $--> system "system"
-    ; -"execl" <>$ capt_exp $+...$--> system "execl"
+    ; -"execl" <>$ capt_exp $++$--> execl "execl"
     ; -"execv" <>$ capt_exp $+...$--> system "execv"
     ; -"execle" <>$ capt_exp $+...$--> system "execle"
     ; -"execve" <>$ capt_exp $+...$--> system "execve"

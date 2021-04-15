@@ -78,6 +78,8 @@ module Loc : sig
 
   val get_path : t -> Symb.SymbolPath.partial option
 
+  val is_var : t -> bool
+
   val is_field_of : loc:t -> field_loc:t -> bool
   (** It checks if [loc] is prefix of [field_loc]. *)
 

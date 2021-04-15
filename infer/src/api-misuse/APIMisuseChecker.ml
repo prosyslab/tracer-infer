@@ -369,10 +369,7 @@ module TransferFunctions = struct
         let locs1 = Sem.eval_locs e1 location bo_mem_opt mem in
         let v = Sem.eval e2 location bo_mem_opt mem in
         let v = {v with traces= TraceSet.append (Trace.make_store e1 e2 location) v.traces} in
-        let update_func =
-          match e1 with Exp.Lindex (_, _) -> Dom.Mem.weak_update | _ -> Dom.Mem.add
-        in
-        Dom.PowLocWithIdx.fold (fun l m -> update_func l v m) locs1 mem
+        Dom.PowLocWithIdx.fold (fun l m -> Dom.Mem.update l v m) locs1 mem
     | Call (ret, Const (Cfun callee_pname), params, location, _) -> (
         let fun_arg_list =
           List.map params ~f:(fun (exp, typ) ->
