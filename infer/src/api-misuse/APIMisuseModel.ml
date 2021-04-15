@@ -27,13 +27,13 @@ let empty_check_fun _ _ condset = condset
 
 let empty = {exec= empty_exec_fun; check= empty_check_fun}
 
-let fread buffer =
+let fread pname buffer =
   let exec {node; bo_mem_opt; location} ~ret:_ mem =
     let locs = Sem.eval_locs buffer location bo_mem_opt mem in
     Dom.PowLocWithIdx.fold
       (fun loc mem ->
         let traces =
-          Trace.make_input (Procname.from_string_c_fun "fread") location
+          Trace.make_input (Procname.from_string_c_fun pname) location
           |> Trace.make_singleton |> Trace.Set.singleton
         in
         let v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
@@ -51,6 +51,8 @@ let fread buffer =
   in
   {exec; check= empty_check_fun}
 
+
+let recvfrom pname _ buffer = fread pname buffer
 
 let getc _ =
   let exec {node; location} ~ret mem =
@@ -404,6 +406,26 @@ let execl pname str args =
   {exec= empty_exec_fun; check}
 
 
+let execve pname str argv =
+  let system_model = system pname str in
+  let check ({location; bo_mem_opt} as env) mem condset =
+    let v = Sem.eval argv location bo_mem_opt mem in
+    let v_powloc = v |> Dom.Val.get_powloc in
+    let v = Dom.Mem.find_set v_powloc mem in
+    let v_powloc = v |> Dom.Val.get_powloc in
+    let user_input_val =
+      Dom.PowLocWithIdx.fold
+        (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
+        v_powloc Dom.Val.bottom
+      |> Dom.Val.append_trace_elem
+           (Trace.make_cmd_injection (Procname.from_string_c_fun pname) argv location)
+    in
+    Dom.CondSet.union (Dom.CondSet.make_exec user_input_val location) condset
+    |> system_model.check env mem
+  in
+  {exec= empty_exec_fun; check}
+
+
 let infer_print exp =
   let exec {location; bo_mem_opt} ~ret:_ mem =
     let v = Sem.eval exp location bo_mem_opt mem in
@@ -585,8 +607,9 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
       $--> BasicString.plus_equal
     ; -"std" &:: "basic_string" < any_typ &+ any_typ &+ any_typ >:: "basic_string" &::.*--> empty
     ; -"std" &:: "basic_string" < any_typ &+...>:: "basic_string" &::.*--> empty
-    ; -"fread" <>$ capt_exp $+...$--> fread
-    ; -"fgets" <>$ capt_exp $+...$--> fread
+    ; -"fread" <>$ capt_exp $+...$--> fread "fread"
+    ; -"fgets" <>$ capt_exp $+...$--> fread "fgets"
+    ; -"recvfrom" <>$ capt_exp $+ capt_exp $+...$--> recvfrom "recvfrom"
     ; -"malloc" <>$ capt_exp $--> malloc "malloc"
     ; -"g_malloc" <>$ capt_exp $--> malloc "g_malloc"
     ; -"__new_array" <>$ capt_exp $--> malloc "__new_array"
@@ -616,7 +639,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"execl" <>$ capt_exp $++$--> execl "execl"
     ; -"execv" <>$ capt_exp $+...$--> system "execv"
     ; -"execle" <>$ capt_exp $+...$--> system "execle"
-    ; -"execve" <>$ capt_exp $+...$--> system "execve"
+    ; -"execve" <>$ capt_exp $+ capt_exp $+...$--> execve "execve"
     ; -"execlp" <>$ capt_exp $+...$--> system "execlp"
-    ; -"execvp" <>$ capt_exp $+...$--> system "execev"
+    ; -"execvp" <>$ capt_exp $+...$--> system "execvp"
     ; -"__infer_print__" <>$ capt_exp $--> infer_print ]

@@ -633,7 +633,7 @@ let should_skip proc_desc =
         false
     | _, _ ->
         (not (List.exists ~f:(String.equal pname) Config.only_functions))
-        || not (List.exists ~f:(String.equal filename) Config.only_files)
+        && not (List.exists ~f:(String.equal filename) Config.only_files)
 
 
 let checker ({InterproceduralAnalysis.proc_desc; analyze_dependency} as analysis_data) =

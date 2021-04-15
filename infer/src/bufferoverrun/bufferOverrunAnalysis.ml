@@ -505,8 +505,19 @@ let should_skip proc_desc =
   let node = CFG.Node.loc (CFG.start_node proc_desc) in
   let pname = Procdesc.get_proc_name proc_desc |> Procname.get_method in
   let filename = SourceFile.to_rel_path node.file in
-  List.exists ~f:(String.equal filename) Config.skip_files
-  || List.exists ~f:(String.equal pname) Config.skip_functions
+  L.(debug Analysis Verbose) "ONLYXX %s\n" filename ;
+  let check_skip =
+    List.exists ~f:(String.equal filename) Config.skip_files
+    || List.exists ~f:(String.equal pname) Config.skip_functions
+  in
+  if check_skip then true
+  else
+    match (Config.only_files, Config.only_functions) with
+    | [], [] ->
+        false
+    | _, _ ->
+        (not (List.exists ~f:(String.equal pname) Config.only_functions))
+        && not (List.exists ~f:(String.equal filename) Config.only_files)
 
 
 let analyze_procedure ({InterproceduralAnalysis.proc_desc} as analysis_data) =
