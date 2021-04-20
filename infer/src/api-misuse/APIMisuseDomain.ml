@@ -509,23 +509,19 @@ module Mem = struct
           L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
           let loc = p |> Allocsite.make_symbol |> Loc.of_allocsite in
           let deref_sym = p |> SPath.deref ~deref_kind:SPath.Deref_CPointer in
-          let traces = [Trace.of_symbol deref_sym] |> TraceSet.singleton in
           let powloc = LocWithIdx.of_symbol deref_sym |> PowLocWithIdx.singleton in
           L.d_printfln_escaped "Powloc: %a" PowLocWithIdx.pp powloc ;
           let deref2_sym = deref_sym |> SPath.deref ~deref_kind:SPath.Deref_CPointer in
+          let deref3_sym = deref2_sym |> SPath.deref ~deref_kind:SPath.Deref_CPointer in
           let mem =
             add (LocWithIdx.of_loc loc) (Val.symbol deref_sym) mem
             |> add (LocWithIdx.of_symbol deref_sym) (Val.symbol deref2_sym)
+            |> add (LocWithIdx.of_symbol deref2_sym) (Val.symbol deref3_sym)
           in
-          ({bottom with powloc; traces}, mem)
+          (Val.symbol deref_sym, mem)
       | Some typ ->
           L.d_printfln_escaped "Val.on_demand for %a (%a)" LocWithIdx.pp loc (Typ.pp Pp.text) typ ;
-          let int_overflow = IntOverflow.make_symbol p in
-          let int_underflow = IntUnderflow.make_symbol p in
-          let user_input = UserInput.make_symbol p in
-          let loc = Allocsite.make_symbol p |> Loc.of_allocsite in
-          let traces = [Trace.make_symbol_decl loc] |> TraceSet.singleton in
-          ({bottom with int_overflow; int_underflow; user_input; traces}, mem)
+          (Val.symbol p, mem)
       | None ->
           L.(debug Analysis Verbose) "Unknown: %a\n" SPath.pp_partial p ;
           L.d_printfln_escaped "Path %a" Symb.SymbolPath.pp_partial p ;
