@@ -20,7 +20,7 @@ module Trace = struct
 
   let append h t = h :: t
 
-  let concat t1 t2 = t1 @ t2
+  let concat t1 t2 = List.rev_append (List.rev t1) t2
 
   let make_singleton elem = [elem]
 
