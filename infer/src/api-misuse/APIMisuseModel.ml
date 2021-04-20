@@ -636,6 +636,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"getopt" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> getopt
     ; -"atoi" <>$ capt_exp $--> atoi
     ; -"system" <>$ capt_exp $--> system "system"
+    ; -"popen" <>$ capt_exp $+...$--> system "popen"
     ; -"execl" <>$ capt_exp $++$--> execl "execl"
     ; -"execv" <>$ capt_exp $+...$--> system "execv"
     ; -"execle" <>$ capt_exp $+...$--> system "execle"
