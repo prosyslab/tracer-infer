@@ -269,6 +269,22 @@ let snprintf pname _ _ str args = sprintf pname Exp.null str args
 
 let fprintf pname _ str = printf pname str
 
+let sscanf _ source _ args =
+  let exec {location; bo_mem_opt} ~ret:_ mem =
+    let source_val = Sem.eval source location bo_mem_opt mem in
+    List.fold args
+      ~f:(fun mem ProcnameDispatcher.Call.FuncArg.{exp} ->
+        let ploc = Sem.eval_locs exp location bo_mem_opt mem in
+        Dom.PowLocWithIdx.fold
+          (fun loc mem ->
+            let v = Dom.Val.join (Dom.Mem.find_on_demand loc mem) source_val in
+            Dom.Mem.add loc v mem)
+          ploc mem)
+      ~init:mem
+  in
+  {exec; check= empty_check_fun}
+
+
 let gnutls_x509_crt_get_subject_alt_name _ _ ret_addr =
   let exec {node; location; bo_mem_opt} ~ret:_ mem =
     let locs = Sem.eval_locs ret_addr location bo_mem_opt mem in
@@ -625,6 +641,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"_IO_getc" <>$ capt_exp $--> getc
     ; -"getenv" <>$ capt_exp $--> getenv
     ; -"fgetc" <>$ capt_exp $--> getc
+    ; -"sscanf" <>$ capt_exp $+ capt_exp $++$--> sscanf "sscanf"
     ; -"strtok" <>$ capt_exp $+...$--> strtok
     ; -"strdup" <>$ capt_exp $--> strdup
     ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy
