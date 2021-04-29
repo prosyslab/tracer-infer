@@ -52,7 +52,19 @@ let fread pname buffer =
   {exec; check= empty_check_fun}
 
 
+let slurp_read _ buffer = fread "slurp_read" buffer
+
 let recvfrom pname _ buffer = fread pname buffer
+
+let bswap_16 exp =
+  let exec {bo_mem_opt; location} ~ret mem =
+    let id, _ = ret in
+    let loc = Dom.LocWithIdx.of_loc (Loc.of_id id) in
+    let v = Sem.eval exp location bo_mem_opt mem in
+    Dom.Mem.add loc v mem
+  in
+  {exec; check= empty_check_fun}
+
 
 let getc _ =
   let exec {node; location} ~ret mem =
@@ -624,6 +636,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"std" &:: "basic_string" < any_typ &+ any_typ &+ any_typ >:: "basic_string" &::.*--> empty
     ; -"std" &:: "basic_string" < any_typ &+...>:: "basic_string" &::.*--> empty
     ; -"fread" <>$ capt_exp $+...$--> fread "fread"
+    ; -"slurp_read" <>$ capt_exp $+ capt_exp $+...$--> slurp_read
     ; -"fgets" <>$ capt_exp $+...$--> fread "fgets"
     ; -"recvfrom" <>$ capt_exp $+ capt_exp $+...$--> recvfrom "recvfrom"
     ; -"malloc" <>$ capt_exp $--> malloc "malloc"
@@ -637,6 +650,8 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"vsprintf" <>$ capt_exp $+ capt_exp $++$--> sprintf "vsprintf"
     ; -"vsnprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $++$--> snprintf "vsnprintf"
     ; -"fprintf" <>$ capt_exp $+ capt_exp $--> fprintf "fprintf"
+    ; -"bswap_16" <>$ capt_exp $--> bswap_16
+    ; -"__bswap_16" <>$ capt_exp $--> bswap_16
     ; -"getc" <>$ capt_exp $--> getc
     ; -"_IO_getc" <>$ capt_exp $--> getc
     ; -"getenv" <>$ capt_exp $--> getenv
