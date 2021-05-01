@@ -36,10 +36,10 @@ let symbol_subst sym p exp typ_exp location bo_mem mem =
   let ({Dom.Val.powloc; _} as v) = Sem.eval exp location bo_mem mem in
   match sym with
   | BufferOverrunField.Prim (SPath.Deref (_, Prim (Deref (_, Prim (Deref (_, p2)))))) ->
-      let {Dom.Val.powloc; _} =
+      let powloc =
         Dom.PowLocWithIdx.fold
-          (fun l v -> Dom.Mem.find l mem |> Dom.Val.join v)
-          powloc Dom.Val.bottom
+          (fun l v -> Dom.Mem.find l mem |> Dom.Val.get_powloc |> Dom.PowLocWithIdx.join v)
+          powloc Dom.PowLocWithIdx.bottom
       in
       let deref2_subst_val =
         Dom.PowLocWithIdx.fold
@@ -385,6 +385,10 @@ module TransferFunctions = struct
             user_call ret callee_pname params location )
     | Call (((_, ret_typ) as ret), _, params, location, _) ->
         let candidates = BufferOverrunUtils.get_func_candidates proc_desc all_proc ret_typ params in
+        let candidates =
+          if Config.api_misuse_max_fp >= 0 then List.take candidates Config.api_misuse_max_fp
+          else candidates
+        in
         List.iter
           ~f:(fun att ->
             L.d_printfln_escaped "candidate functions: %a\n" Procname.pp

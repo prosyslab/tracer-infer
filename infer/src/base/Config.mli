@@ -164,6 +164,10 @@ val annotation_reachability_custom_pairs : Yojson.Basic.t
 
 val array_level : int
 
+val api_misuse_max_fp : int
+
+val api_misuse_max_set : int
+
 val biabduction_models_mode : bool
 
 val bo_debug : int

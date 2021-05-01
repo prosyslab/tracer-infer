@@ -647,6 +647,14 @@ and array_level =
 |}
 
 
+and api_misuse_max_fp =
+  CLOpt.mk_int ~default:(-1) ~long:"api-misuse-max-fp" "Maximum number targets of function pointer"
+
+
+and api_misuse_max_set =
+  CLOpt.mk_int ~default:(-1) ~long:"api-misuse-max-set" "Maximum number elements of set"
+
+
 and biabduction_models_mode =
   CLOpt.mk_bool ~long:"biabduction-models-mode" "Analysis of the biabduction models"
 
@@ -2747,6 +2755,10 @@ and annotation_reachability_custom_pairs = !annotation_reachability_custom_pairs
 and append_buck_flavors = RevList.to_list !append_buck_flavors
 
 and array_level = !array_level
+
+and api_misuse_max_fp = !api_misuse_max_fp
+
+and api_misuse_max_set = !api_misuse_max_set
 
 and biabduction_models_mode = !biabduction_models_mode
 

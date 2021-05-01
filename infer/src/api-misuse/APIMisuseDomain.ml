@@ -331,11 +331,23 @@ module UserInput = struct
 
   let is_symbol = Set.exists (fun e -> Elem.is_symbol e)
 
-  let join x y = Set.union x y
+  let cardinal = Set.cardinal
+
+  let join x y =
+    if Config.api_misuse_max_set >= 0 then
+      if cardinal x > Config.api_misuse_max_set then x
+      else if cardinal y > Config.api_misuse_max_set then y
+      else Set.union x y
+    else Set.union x y
+
 
   let widen ~prev ~next ~num_iters:_ = join prev next
 
-  let leq ~lhs ~rhs = Set.subset lhs rhs
+  let leq ~lhs ~rhs =
+    if Config.api_misuse_max_set >= 0 then
+      if cardinal rhs > Config.api_misuse_max_set then true else Set.subset lhs rhs
+    else Set.subset lhs rhs
+
 
   let make node loc = Set.singleton (Source (node, loc))
 
