@@ -54,6 +54,30 @@ let fread pname buffer =
 
 let slurp_read _ buffer = fread "slurp_read" buffer
 
+let g_byte_array_append array data =
+  let exec {bo_mem_opt; location} ~ret:_ mem =
+    let data_v = Sem.eval data location bo_mem_opt mem in
+    let v =
+      Dom.PowLocWithIdx.fold
+        (fun l v -> Dom.Mem.find l mem |> Dom.Val.join v)
+        data_v.powloc Dom.Val.bottom
+    in
+    let g_byte_array_name = Typ.CStruct (QualifiedCppName.of_qual_string "GByteArray") in
+    let g_byte_array_type = Typ.mk (Typ.Tstruct g_byte_array_name) in
+    let data_field = Fieldname.make g_byte_array_name "data" in
+    let data_field_exp = Exp.Lfield (array, data_field, g_byte_array_type) in
+    let data_field_exp_locs = Sem.eval_locs data_field_exp location bo_mem_opt mem in
+    let icns_block_header_name = Typ.CStruct (QualifiedCppName.of_qual_string "IcnsBlockHeader") in
+    let size_field = Fieldname.make icns_block_header_name "size" in
+    Dom.PowLocWithIdx.fold
+      (fun l m ->
+        let size_field_loc = Dom.LocWithIdx.append_field size_field l in
+        Dom.Mem.weak_update size_field_loc v m)
+      data_field_exp_locs mem
+  in
+  {exec; check= empty_check_fun}
+
+
 let recvfrom pname _ buffer = fread pname buffer
 
 let bswap_16 exp =
@@ -637,6 +661,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"std" &:: "basic_string" < any_typ &+...>:: "basic_string" &::.*--> empty
     ; -"fread" <>$ capt_exp $+...$--> fread "fread"
     ; -"slurp_read" <>$ capt_exp $+ capt_exp $+...$--> slurp_read
+    ; -"g_byte_array_append" <>$ capt_exp $+ capt_exp $+...$--> g_byte_array_append
     ; -"fgets" <>$ capt_exp $+...$--> fread "fgets"
     ; -"recvfrom" <>$ capt_exp $+ capt_exp $+...$--> recvfrom "recvfrom"
     ; -"malloc" <>$ capt_exp $--> malloc "malloc"
