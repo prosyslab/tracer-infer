@@ -172,8 +172,16 @@ let strdup str =
   let exec {location; bo_mem_opt} ~ret mem =
     let id, _ = ret in
     let v = Sem.eval str location bo_mem_opt mem in
+    let powloc = Dom.Val.get_powloc v in
+    let new_mem =
+      Dom.PowLocWithIdx.fold
+        (fun l m ->
+          let new_v = Dom.Val.append_libcall (Dom.Mem.find l m) "strdup" location in
+          Dom.Mem.update l new_v m)
+        powloc mem
+    in
     let loc = Dom.LocWithIdx.of_loc (Loc.of_id id) in
-    Dom.Mem.add loc v mem
+    Dom.Mem.add loc v new_mem
   in
   {exec; check= empty_check_fun}
 
@@ -187,7 +195,11 @@ let strcpy dst src =
         src_locs Dom.Val.bottom
     in
     let dst_locs = Sem.eval_locs dst location bo_mem_opt mem in
-    Dom.PowLocWithIdx.fold (fun loc m -> Dom.Mem.add loc src_deref_v m) dst_locs mem
+    Dom.PowLocWithIdx.fold
+      (fun loc m ->
+        let new_v = Dom.Val.append_libcall src_deref_v "strcpy" location in
+        Dom.Mem.add loc new_v m)
+      dst_locs mem
   in
   {exec; check= empty_check_fun}
 
@@ -229,8 +241,31 @@ let memset pname _ _ len =
 let strtok src =
   let exec {location; bo_mem_opt} ~ret mem =
     let v = Sem.eval src location bo_mem_opt mem in
+    let powloc = Dom.Val.get_powloc v in
+    let new_mem =
+      Dom.PowLocWithIdx.fold
+        (fun l m ->
+          let new_v = Dom.Val.append_libcall (Dom.Mem.find l m) "strtok" location in
+          Dom.Mem.update l new_v m)
+        powloc mem
+    in
     let retloc = fst ret |> Loc.of_id |> Dom.LocWithIdx.of_loc in
-    Dom.Mem.add retloc v mem
+    Dom.Mem.add retloc v new_mem
+  in
+  {exec; check= empty_check_fun}
+
+
+let strcmp s1 s2 =
+  let exec {location; bo_mem_opt} ~ret:_ mem =
+    let add_libcall s m =
+      let locs = Sem.eval s location bo_mem_opt mem |> Dom.Val.get_powloc in
+      Dom.PowLocWithIdx.fold
+        (fun loc acc_m ->
+          let v = Dom.Mem.find loc acc_m in
+          Dom.Mem.update loc (Dom.Val.append_libcall v "strcmp" location) acc_m)
+        locs m
+    in
+    add_libcall s1 mem |> add_libcall s2
   in
   {exec; check= empty_check_fun}
 
@@ -685,6 +720,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"strtok" <>$ capt_exp $+...$--> strtok
     ; -"strdup" <>$ capt_exp $--> strdup
     ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy
+    ; -"strcmp" <>$ capt_exp $+ capt_exp $+...$--> strcmp
     ; -"memcpy" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> memcpy "memcpy"
     ; -"memset" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> memset "memset"
     ; -"gnutls_x509_crt_get_subject_alt_name"

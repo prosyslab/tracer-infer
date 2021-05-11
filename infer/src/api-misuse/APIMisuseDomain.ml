@@ -434,6 +434,13 @@ module Val = struct
     {v with traces= new_traces}
 
 
+  let append_libcall v f_name location =
+    let user_input = get_user_input v in
+    if UserInput.is_symbol user_input || UserInput.is_taint user_input then
+      append_trace_elem (Trace.make_libcall f_name location) v
+    else v
+
+
   let join lhs rhs =
     { powloc= PowLocWithIdx.join lhs.powloc rhs.powloc
     ; init= Init.join lhs.init rhs.init
