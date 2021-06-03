@@ -456,7 +456,12 @@ let check_instr
       | None ->
           user_call callee_pname args location )
   | Sil.Call ((_, ret_typ), _, params, location, _) ->
-      BufferOverrunUtils.get_func_candidates proc_desc all_proc ret_typ params
+      let candidates = BufferOverrunUtils.get_func_candidates proc_desc all_proc ret_typ params in
+      let candidates =
+        if Config.api_misuse_max_fp >= 0 then List.take candidates Config.api_misuse_max_fp
+        else candidates
+      in
+      candidates
       |> List.fold_left
            ~f:(fun condset att ->
              let callee_pname = ProcAttributes.get_proc_name att in
@@ -653,7 +658,7 @@ let checker ({InterproceduralAnalysis.proc_desc; analyze_dependency} as analysis
     let get_formals callee_pname =
       AnalysisCallbacks.proc_resolve_attributes callee_pname >>| ProcAttributes.get_pvar_formals
     in
-    let all_proc = ProcAttributes.get_all () in
+    let all_proc = if Int.equal Config.api_misuse_max_fp 0 then [] else ProcAttributes.get_all () in
     let analysis_data = {interproc= analysis_data; get_summary; get_formals; all_proc} in
     let initial = initial_state analysis_data (CFG.start_node cfg) in
     let inv_map = Analyzer.exec_pdesc analysis_data ~initial proc_desc in

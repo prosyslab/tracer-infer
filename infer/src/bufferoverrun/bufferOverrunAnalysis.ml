@@ -414,7 +414,12 @@ module TransferFunctions = struct
         call analysis_data node location ret callee_pname params mem
     | Call (((_, ret_typ) as ret), fun_exp, params, location, _) -> (
         (* force to analyze all candidate functions for APIMisuse checker *)
-        BufferOverrunUtils.get_func_candidates proc_desc all_proc ret_typ params
+        let candidates = BufferOverrunUtils.get_func_candidates proc_desc all_proc ret_typ params in
+        let candidates =
+          if Config.api_misuse_max_fp >= 0 then List.take candidates Config.api_misuse_max_fp
+          else candidates
+        in
+        candidates
         |> List.iter ~f:(fun att ->
                call analysis_data node location ret (ProcAttributes.get_proc_name att) params mem
                |> ignore) ;
@@ -471,7 +476,7 @@ let compute_invariant_map :
     in
     let integer_type_widths = Exe_env.get_integer_type_widths exe_env proc_name in
     let oenv = OndemandEnv.mk proc_desc tenv integer_type_widths in
-    let all_proc = ProcAttributes.get_all () in
+    let all_proc = if Int.equal Config.api_misuse_max_fp 0 then [] else ProcAttributes.get_all () in
     {interproc; get_summary; get_formals; oenv; all_proc}
   in
   let initial = Init.initial_state analysis_data (CFG.start_node cfg) in
