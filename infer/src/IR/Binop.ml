@@ -52,7 +52,7 @@ let yojson_of_t = function
  | Mod  -> `String "%"
  | Shiftlt  -> `String "<<"
  | Shiftrt  -> `String "<<"
- | Lt  -> `String "<<" (** < (arithmetic comparison) *)
+ | Lt  -> `String "<" (** < (arithmetic comparison) *)
  | Gt  -> `String ">" (** > (arithmetic comparison) *)
  | Le  -> `String "<=" (** <= (arithmetic comparison) *)
   | Ge  -> `String ">=" (** >= (arithmetic comparison) *)
