@@ -362,6 +362,8 @@ val jobs : int
 
 val join_cond : int
 
+val juliet : bool
+
 val keep_going : bool
 
 val linter : string option

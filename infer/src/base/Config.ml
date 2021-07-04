@@ -1496,6 +1496,8 @@ and join_cond =
 |}
 
 
+and juliet = CLOpt.mk_bool ~default:false ~long:"juliet" "For juliet testcases"
+
 and liveness_dangerous_classes =
   CLOpt.mk_json ~long:"liveness-dangerous-classes"
     ~in_help:InferCommand.[(Analyze, manual_clang)]
@@ -3015,6 +3017,8 @@ and job_id = !job_id
 and jobs = Option.fold !max_jobs ~init:!jobs ~f:min
 
 and join_cond = !join_cond
+
+and juliet = !juliet
 
 and linter = !linter
 
