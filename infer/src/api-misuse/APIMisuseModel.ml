@@ -54,6 +54,19 @@ let fread pname buffer =
 
 let slurp_read _ buffer = fread "slurp_read" buffer
 
+let fscanf _ _ args =
+  let exec fscanf_model_env ~ret mem =
+    match args with
+    | _ :: _ ->
+        List.fold args ~init:mem ~f:(fun m ProcnameDispatcher.Call.FuncArg.{exp} ->
+            let fread_model = fread "fscanf" exp in
+            fread_model.exec fscanf_model_env ~ret m)
+    | _ ->
+        mem
+  in
+  {exec; check= empty_check_fun}
+
+
 let g_byte_array_append array data =
   let exec {bo_mem_opt; location} ~ret:_ mem =
     let data_v = Sem.eval data location bo_mem_opt mem in
@@ -672,11 +685,36 @@ module BasicString = struct
     {empty with check}
 end
 
+(* Functions for juliet testcases *)
+let print_hex_char_line n =
+  let check {location; bo_mem_opt} mem condset =
+    let v =
+      Sem.eval n location bo_mem_opt mem
+      |> Dom.Val.append_trace_elem
+           (Trace.make_int_overflow (Procname.from_string_c_fun "printHexCharLine") n location)
+    in
+    Dom.CondSet.union (Dom.CondSet.make_overflow v location) condset
+  in
+  {exec= empty_exec_fun; check}
+
+
+let print_int_line n =
+  let check {location; bo_mem_opt} mem condset =
+    let v =
+      Sem.eval n location bo_mem_opt mem
+      |> Dom.Val.append_trace_elem
+           (Trace.make_int_overflow (Procname.from_string_c_fun "printIntLine") n location)
+    in
+    Dom.CondSet.union (Dom.CondSet.make_overflow v location) condset
+  in
+  {exec= empty_exec_fun; check}
+
+
 let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t list -> 'a =
   let open ProcnameDispatcher.Call in
   let char_typ = Typ.mk (Typ.Tint Typ.IChar) in
   let char_ptr = Typ.mk (Typ.Tptr (char_typ, Pk_pointer)) in
-  make_dispatcher
+  let base_models =
     [ -"std" &:: "map" < any_typ &+...>:: "operator[]" $ capt_exp $+ capt_exp $--> StdMap.at
     ; -"std" &:: "map" < any_typ &+...>:: "map" $ capt_exp
       $+ capt_exp_of_typ (-"std" &:: "map")
@@ -695,6 +733,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"std" &:: "basic_string" < any_typ &+ any_typ &+ any_typ >:: "basic_string" &::.*--> empty
     ; -"std" &:: "basic_string" < any_typ &+...>:: "basic_string" &::.*--> empty
     ; -"fread" <>$ capt_exp $+...$--> fread "fread"
+    ; -"fscanf" <>$ capt_exp $+ capt_exp $++$--> fscanf
     ; -"slurp_read" <>$ capt_exp $+ capt_exp $+...$--> slurp_read
     ; -"g_byte_array_append" <>$ capt_exp $+ capt_exp $+...$--> g_byte_array_append
     ; -"fgets" <>$ capt_exp $+...$--> fread "fgets"
@@ -737,3 +776,10 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"execlp" <>$ capt_exp $+...$--> system "execlp"
     ; -"execvp" <>$ capt_exp $+...$--> system "execvp"
     ; -"__infer_print__" <>$ capt_exp $--> infer_print ]
+  in
+  let juliet_models =
+    [ -"printHexCharLine" <>$ capt_exp $--> print_hex_char_line
+    ; -"printIntLine" <>$ capt_exp $--> print_int_line ]
+  in
+  let models = if Config.juliet then List.append juliet_models base_models else base_models in
+  make_dispatcher models
