@@ -29,7 +29,7 @@ let empty = {exec= empty_exec_fun; check= empty_check_fun}
 
 let fread pname buffer =
   let exec {node; bo_mem_opt; location} ~ret:_ mem =
-    let locs = Sem.eval_locs buffer location bo_mem_opt mem in
+    let locs = Sem.eval_locs buffer bo_mem_opt mem in
     Dom.PowLocWithIdx.fold
       (fun loc mem ->
         let traces =
@@ -79,7 +79,7 @@ let g_byte_array_append array data =
     let g_byte_array_type = Typ.mk (Typ.Tstruct g_byte_array_name) in
     let data_field = Fieldname.make g_byte_array_name "data" in
     let data_field_exp = Exp.Lfield (array, data_field, g_byte_array_type) in
-    let data_field_exp_locs = Sem.eval_locs data_field_exp location bo_mem_opt mem in
+    let data_field_exp_locs = Sem.eval_locs data_field_exp bo_mem_opt mem in
     let icns_block_header_name = Typ.CStruct (QualifiedCppName.of_qual_string "IcnsBlockHeader") in
     let size_field = Fieldname.make icns_block_header_name "size" in
     Dom.PowLocWithIdx.fold
@@ -201,13 +201,13 @@ let strdup str =
 
 let strcpy dst src =
   let exec {bo_mem_opt; location} ~ret:_ mem =
-    let src_locs = Sem.eval_locs src location bo_mem_opt mem in
+    let src_locs = Sem.eval_locs src bo_mem_opt mem in
     let src_deref_v =
       Dom.PowLocWithIdx.fold
         (fun loc v -> Dom.Mem.find loc mem |> Dom.Val.join v)
         src_locs Dom.Val.bottom
     in
-    let dst_locs = Sem.eval_locs dst location bo_mem_opt mem in
+    let dst_locs = Sem.eval_locs dst bo_mem_opt mem in
     Dom.PowLocWithIdx.fold
       (fun loc m ->
         let new_v = Dom.Val.append_libcall src_deref_v "strcpy" location in
@@ -218,14 +218,14 @@ let strcpy dst src =
 
 
 let memcpy pname dst src len =
-  let exec {bo_mem_opt; location} ~ret:_ mem =
-    let src_locs = Sem.eval_locs src location bo_mem_opt mem in
+  let exec {bo_mem_opt} ~ret:_ mem =
+    let src_locs = Sem.eval_locs src bo_mem_opt mem in
     let src_deref_v =
       Dom.PowLocWithIdx.fold
         (fun loc v -> Dom.Mem.find loc mem |> Dom.Val.join v)
         src_locs Dom.Val.bottom
     in
-    let dst_locs = Sem.eval_locs dst location bo_mem_opt mem in
+    let dst_locs = Sem.eval_locs dst bo_mem_opt mem in
     Dom.PowLocWithIdx.fold (fun loc m -> Dom.Mem.add loc src_deref_v m) dst_locs mem
   in
   let check {location; bo_mem_opt} mem condset =
@@ -358,7 +358,7 @@ let sscanf _ source _ args =
     let source_val = Sem.eval source location bo_mem_opt mem in
     List.fold args
       ~f:(fun mem ProcnameDispatcher.Call.FuncArg.{exp} ->
-        let ploc = Sem.eval_locs exp location bo_mem_opt mem in
+        let ploc = Sem.eval_locs exp bo_mem_opt mem in
         Dom.PowLocWithIdx.fold
           (fun loc mem ->
             let v = Dom.Val.join (Dom.Mem.find_on_demand loc mem) source_val in
@@ -371,7 +371,7 @@ let sscanf _ source _ args =
 
 let gnutls_x509_crt_get_subject_alt_name _ _ ret_addr =
   let exec {node; location; bo_mem_opt} ~ret:_ mem =
-    let locs = Sem.eval_locs ret_addr location bo_mem_opt mem in
+    let locs = Sem.eval_locs ret_addr bo_mem_opt mem in
     Dom.PowLocWithIdx.fold
       (fun loc mem ->
         let traces =
@@ -627,10 +627,10 @@ end
 
 module BasicString = struct
   let constructor allocator s =
-    let exec {bo_mem_opt; location} ~ret:(id, _) mem =
+    let exec {bo_mem_opt} ~ret:(id, _) mem =
       match s with
       | Exp.Const (Const.Cstr s) ->
-          let allocator_locs = Sem.eval_locs allocator location bo_mem_opt mem in
+          let allocator_locs = Sem.eval_locs allocator bo_mem_opt mem in
           let loc = id |> Loc.of_id |> Dom.LocWithIdx.of_loc in
           let v = s |> Dom.Str.make |> Dom.Val.of_str in
           let mem = Dom.Mem.add loc v mem in
@@ -661,7 +661,7 @@ module BasicString = struct
 
   let assign lv rv =
     let exec {bo_mem_opt; location} ~ret:_ mem =
-      let locs = Sem.eval_locs lv location bo_mem_opt mem in
+      let locs = Sem.eval_locs lv bo_mem_opt mem in
       let v = Sem.eval rv location bo_mem_opt mem in
       Dom.PowLocWithIdx.fold (fun l mem -> Dom.Mem.add l v mem) locs mem
     in

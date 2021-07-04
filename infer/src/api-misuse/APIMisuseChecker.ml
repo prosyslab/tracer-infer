@@ -94,7 +94,7 @@ let symbol_subst sym p exp typ_exp location bo_mem mem =
     | BufferOverrunField.Prim (SPath.Deref (_, prefix_deref)) ->
         if SPath.equal_partial p prefix_deref then
           let lfield_exp = Exp.Lfield (exp, fn, typ_exp) in
-          let lfield_exp_powloc = Sem.eval_locs lfield_exp location bo_mem mem in
+          let lfield_exp_powloc = Sem.eval_locs lfield_exp bo_mem mem in
           Some
             (Dom.PowLocWithIdx.fold
                (fun l v -> Dom.Mem.find_on_demand ?typ l mem |> Dom.Val.join v)
@@ -353,7 +353,7 @@ module TransferFunctions = struct
     | Load {id; e; typ; _} ->
         (* id is a pure variable. id itself is a valid loc *)
         let id_loc = Loc.of_id id |> Dom.LocWithIdx.of_loc in
-        let locs = Sem.eval_locs e location bo_mem_opt mem in
+        let locs = Sem.eval_locs e bo_mem_opt mem in
         let v, mem =
           Dom.PowLocWithIdx.fold
             (fun l (v, mem) ->
@@ -366,7 +366,7 @@ module TransferFunctions = struct
         Sem.Prune.prune exp location bo_mem_opt mem branch if_kind
     | Store {e1; e2} ->
         (* e1 can be either PVar or LVar. *)
-        let locs1 = Sem.eval_locs e1 location bo_mem_opt mem in
+        let locs1 = Sem.eval_locs e1 bo_mem_opt mem in
         let v = Sem.eval e2 location bo_mem_opt mem in
         let v = {v with traces= TraceSet.append (Trace.make_store e1 e2 location) v.traces} in
         Dom.PowLocWithIdx.fold (fun l m -> Dom.Mem.update l v m) locs1 mem
@@ -427,7 +427,7 @@ let check_instr
   match instr with
   | Sil.Load {e; loc} ->
       let locs =
-        Sem.eval_locs e loc bo_mem_opt mem
+        Sem.eval_locs e bo_mem_opt mem
         |> Dom.PowLocWithIdx.filter (function Dom.LocWithIdx.Idx (_, _) -> true | _ -> false)
       in
       if Dom.PowLocWithIdx.is_empty locs then condset

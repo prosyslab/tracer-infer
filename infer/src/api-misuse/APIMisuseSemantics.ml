@@ -61,7 +61,7 @@ let check_no_overflow bop e1 e2 =
 
 let check_no_underflow bop e2 = match bop with Binop.MinusA _ -> Exp.is_zero e2 | _ -> true
 
-let rec eval_locs exp _ bo_mem mem =
+let rec eval_locs exp bo_mem mem =
   match exp with
   | Exp.Var id ->
       Var.of_id id |> AbsLoc.Loc.of_var |> Dom.LocWithIdx.of_loc |> Fun.flip Mem.find mem
@@ -71,6 +71,12 @@ let rec eval_locs exp _ bo_mem mem =
       bo_eval_locs exp bo_mem
   | Exp.Lindex (_, _) | Exp.Lfield (_, _, _) ->
       bo_eval_locs exp bo_mem
+  | Exp.BinOp (binop, e1, e2) -> (
+    match binop with
+    | Binop.PlusPI | Binop.MinusPI ->
+        Dom.PowLocWithIdx.join (eval_locs e1 bo_mem mem) (eval_locs e2 bo_mem mem)
+    | _ ->
+        Dom.PowLocWithIdx.empty )
   | _ ->
       Dom.PowLocWithIdx.empty
 
