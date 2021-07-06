@@ -687,30 +687,30 @@ module BasicString = struct
     {empty with check}
 end
 
+let check_overflow_underflow pname n =
+  let check {location; bo_mem_opt} mem condset =
+    let v = Sem.eval n location bo_mem_opt mem in
+    let overflow_v =
+      Dom.Val.append_trace_elem
+        (Trace.make_int_overflow (Procname.from_string_c_fun pname) n location)
+        v
+    in
+    let underflow_v =
+      Dom.Val.append_trace_elem
+        (Trace.make_int_underflow (Procname.from_string_c_fun pname) n location)
+        v
+    in
+    condset
+    |> Dom.CondSet.union (Dom.CondSet.make_overflow overflow_v location)
+    |> Dom.CondSet.union (Dom.CondSet.make_underflow underflow_v location)
+  in
+  {exec= empty_exec_fun; check}
+
+
 (* Functions for juliet testcases *)
-let print_hex_char_line n =
-  let check {location; bo_mem_opt} mem condset =
-    let v =
-      Sem.eval n location bo_mem_opt mem
-      |> Dom.Val.append_trace_elem
-           (Trace.make_int_overflow (Procname.from_string_c_fun "printHexCharLine") n location)
-    in
-    Dom.CondSet.union (Dom.CondSet.make_overflow v location) condset
-  in
-  {exec= empty_exec_fun; check}
+let print_hex_char_line = check_overflow_underflow "printHexCharLine"
 
-
-let print_int_line n =
-  let check {location; bo_mem_opt} mem condset =
-    let v =
-      Sem.eval n location bo_mem_opt mem
-      |> Dom.Val.append_trace_elem
-           (Trace.make_int_overflow (Procname.from_string_c_fun "printIntLine") n location)
-    in
-    Dom.CondSet.union (Dom.CondSet.make_overflow v location) condset
-  in
-  {exec= empty_exec_fun; check}
-
+let print_int_line = check_overflow_underflow "printIntLine"
 
 let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t list -> 'a =
   let open ProcnameDispatcher.Call in
