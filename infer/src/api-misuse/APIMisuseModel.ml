@@ -355,6 +355,8 @@ let snprintf pname _ _ str args = sprintf pname Exp.null str args
 
 let fprintf pname _ str = printf pname str
 
+let vfprintf = fprintf "vfprintf"
+
 let sscanf _ source _ args =
   let exec {location; bo_mem_opt} ~ret:_ mem =
     let source_val = Sem.eval source location bo_mem_opt mem in
@@ -712,6 +714,8 @@ let print_hex_char_line = check_overflow_underflow "printHexCharLine"
 
 let print_int_line = check_overflow_underflow "printIntLine"
 
+let print_unsigned_line = check_overflow_underflow "printUnsignedLine"
+
 let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t list -> 'a =
   let open ProcnameDispatcher.Call in
   let char_typ = Typ.mk (Typ.Tint Typ.IChar) in
@@ -752,7 +756,8 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"snprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $++$--> snprintf "snprintf"
     ; -"vsprintf" <>$ capt_exp $+ capt_exp $++$--> sprintf "vsprintf"
     ; -"vsnprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $++$--> snprintf "vsnprintf"
-    ; -"fprintf" <>$ capt_exp $+ capt_exp $--> fprintf "fprintf"
+    ; -"fprintf" <>$ capt_exp $+ capt_exp $+...$--> fprintf "fprintf"
+    ; -"vfprintf" <>$ capt_exp $+ capt_exp $+...$--> vfprintf
     ; -"bswap_16" <>$ capt_exp $--> bswap_16
     ; -"__bswap_16" <>$ capt_exp $--> bswap_16
     ; -"getc" <>$ capt_exp $--> getc
@@ -783,7 +788,8 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
   in
   let juliet_models =
     [ -"printHexCharLine" <>$ capt_exp $--> print_hex_char_line
-    ; -"printIntLine" <>$ capt_exp $--> print_int_line ]
+    ; -"printIntLine" <>$ capt_exp $--> print_int_line
+    ; -"printUnsignedLine" <>$ capt_exp $--> print_unsigned_line ]
   in
   let models = if Config.juliet then List.append juliet_models base_models else base_models in
   make_dispatcher models
