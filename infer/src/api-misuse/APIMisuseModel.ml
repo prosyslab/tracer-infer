@@ -91,6 +91,8 @@ let g_byte_array_append array data =
   {exec; check= empty_check_fun}
 
 
+let recv _ buffer = fread "recv" buffer
+
 let recvfrom pname _ buffer = fread pname buffer
 
 let bswap_16 exp =
@@ -737,6 +739,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"slurp_read" <>$ capt_exp $+ capt_exp $+...$--> slurp_read
     ; -"g_byte_array_append" <>$ capt_exp $+ capt_exp $+...$--> g_byte_array_append
     ; -"fgets" <>$ capt_exp $+...$--> fread "fgets"
+    ; -"recv" <>$ capt_exp $+ capt_exp $+...$--> recv
     ; -"recvfrom" <>$ capt_exp $+ capt_exp $+...$--> recvfrom "recvfrom"
     ; -"malloc" <>$ capt_exp $--> malloc "malloc"
     ; -"g_malloc" <>$ capt_exp $--> malloc "g_malloc"
@@ -744,6 +747,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"realloc" <>$ capt_exp $+ capt_exp $+...$--> realloc
     ; -"calloc" <>$ capt_exp $+ capt_exp $+...$--> calloc
     ; -"printf" <>$ capt_exp $+...$--> printf "printf"
+    ; -"vprintf" <>$ capt_exp $+...$--> printf "vprintf"
     ; -"sprintf" <>$ capt_exp $+ capt_exp $++$--> sprintf "sprintf"
     ; -"snprintf" <>$ capt_exp $+ capt_exp $+ capt_exp $++$--> snprintf "snprintf"
     ; -"vsprintf" <>$ capt_exp $+ capt_exp $++$--> sprintf "vsprintf"
