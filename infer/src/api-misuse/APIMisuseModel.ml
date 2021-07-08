@@ -201,6 +201,30 @@ let strdup str =
   {exec; check= empty_check_fun}
 
 
+let strcat_model fname dst src =
+  let exec {bo_mem_opt; location} ~ret:_ mem =
+    let src_locs = Sem.eval_locs src bo_mem_opt mem in
+    let src_deref_v =
+      Dom.PowLocWithIdx.fold
+        (fun loc v -> Dom.Mem.find loc mem |> Dom.Val.join v)
+        src_locs Dom.Val.bottom
+    in
+    let dst_locs = Sem.eval_locs dst bo_mem_opt mem in
+    Dom.PowLocWithIdx.fold
+      (fun loc m ->
+        let dst_deref_v = Dom.Mem.find loc mem in
+        let join_v = Dom.Val.join src_deref_v dst_deref_v in
+        let new_v = Dom.Val.append_libcall join_v fname location in
+        Dom.Mem.add loc new_v m)
+      dst_locs mem
+  in
+  {exec; check= empty_check_fun}
+
+
+let strcat = strcat_model "strcat"
+
+let strncat dst src _n = strcat_model "strncat" dst src
+
 let strcpy dst src =
   let exec {bo_mem_opt; location} ~ret:_ mem =
     let src_locs = Sem.eval_locs src bo_mem_opt mem in
@@ -716,6 +740,8 @@ let print_int_line = check_overflow_underflow "printIntLine"
 
 let print_unsigned_line = check_overflow_underflow "printUnsignedLine"
 
+let print_long_long_line = check_overflow_underflow "printLongLongLine"
+
 let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t list -> 'a =
   let open ProcnameDispatcher.Call in
   let char_typ = Typ.mk (Typ.Tint Typ.IChar) in
@@ -767,6 +793,8 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"sscanf" <>$ capt_exp $+ capt_exp $++$--> sscanf "sscanf"
     ; -"strtok" <>$ capt_exp $+...$--> strtok
     ; -"strdup" <>$ capt_exp $--> strdup
+    ; -"strcat" <>$ capt_exp $+ capt_exp $+...$--> strcat
+    ; -"strncat" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> strncat
     ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy
     ; -"strcmp" <>$ capt_exp $+ capt_exp $+...$--> strcmp
     ; -"memcpy" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> memcpy "memcpy"
@@ -789,7 +817,8 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
   let juliet_models =
     [ -"printHexCharLine" <>$ capt_exp $--> print_hex_char_line
     ; -"printIntLine" <>$ capt_exp $--> print_int_line
-    ; -"printUnsignedLine" <>$ capt_exp $--> print_unsigned_line ]
+    ; -"printUnsignedLine" <>$ capt_exp $--> print_unsigned_line
+    ; -"printLongLongLine" <>$ capt_exp $--> print_long_long_line ]
   in
   let models = if Config.juliet then List.append juliet_models base_models else base_models in
   make_dispatcher models
