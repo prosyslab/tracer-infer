@@ -651,8 +651,20 @@ and api_misuse_max_fp =
   CLOpt.mk_int ~default:(-1) ~long:"api-misuse-max-fp" "Maximum number targets of function pointer"
 
 
+and api_misuse_max_powloc =
+  CLOpt.mk_int ~default:50 ~long:"api-misuse-max-powloc" "Maximum number elements of powloc"
+
+
 and api_misuse_max_set =
   CLOpt.mk_int ~default:(-1) ~long:"api-misuse-max-set" "Maximum number elements of set"
+
+
+and api_misuse_max_trace_set =
+  CLOpt.mk_int ~default:50 ~long:"api-misuse-max-trace-set" "Maximum number elements of trace set"
+
+
+and api_misuse_max_trace_length =
+  CLOpt.mk_int ~default:100 ~long:"api-misuse-max-trace-length" "Maximum length of trace"
 
 
 and biabduction_models_mode =
@@ -2760,7 +2772,13 @@ and array_level = !array_level
 
 and api_misuse_max_fp = !api_misuse_max_fp
 
+and api_misuse_max_powloc = !api_misuse_max_powloc
+
 and api_misuse_max_set = !api_misuse_max_set
+
+and api_misuse_max_trace_set = !api_misuse_max_trace_set
+
+and api_misuse_max_trace_length = !api_misuse_max_trace_length
 
 and biabduction_models_mode = !biabduction_models_mode
 

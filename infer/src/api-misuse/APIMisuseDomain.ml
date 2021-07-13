@@ -192,9 +192,9 @@ module PowLocWithIdx = struct
 
   let bottom = empty
 
-  let join x y = if cardinal x + cardinal y > 50 then x else union x y
+  let join x y = if cardinal x + cardinal y > Config.api_misuse_max_powloc then x else union x y
 
-  let add elt t = if cardinal t < 50 then add elt t else t
+  let add elt t = if cardinal t < Config.api_misuse_max_powloc then add elt t else t
 
   let widen ~prev ~next ~num_iters:_ = join prev next
 

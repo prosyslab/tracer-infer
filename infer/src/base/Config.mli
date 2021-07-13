@@ -166,7 +166,13 @@ val array_level : int
 
 val api_misuse_max_fp : int
 
+val api_misuse_max_powloc : int
+
 val api_misuse_max_set : int
+
+val api_misuse_max_trace_set : int
+
+val api_misuse_max_trace_length : int
 
 val biabduction_models_mode : bool
 

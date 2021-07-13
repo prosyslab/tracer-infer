@@ -19,6 +19,8 @@ module Trace = struct
 
   type t = elem list [@@deriving compare]
 
+  let length = List.length
+
   let append h t = h :: t
 
   let concat t1 t2 = List.rev_append (List.rev t1) t2
@@ -171,9 +173,9 @@ module Set = struct
   include AbstractDomain.FiniteSet (Trace)
 
   (* TODO: heuristic. *)
-  let join x y = if cardinal x + cardinal y > 50 then x else join x y
+  let join x y = if cardinal x + cardinal y > Config.api_misuse_max_trace_set then x else join x y
 
-  let add tr t = if cardinal t >= 50 then t else add tr t
+  let add tr t = if cardinal t >= Config.api_misuse_max_trace_set then t else add tr t
 
   let append h set = map (Trace.append h) set
 
@@ -185,7 +187,8 @@ module Set = struct
         (fun t1 set ->
           fold
             (fun t2 set ->
-              if List.length t1 + List.length t2 > 100 then set else add (Trace.concat t1 t2) set)
+              if List.length t1 + List.length t2 > Config.api_misuse_max_trace_length then set
+              else add (Trace.concat t1 t2) set)
             set2 set)
         set1 empty
 
