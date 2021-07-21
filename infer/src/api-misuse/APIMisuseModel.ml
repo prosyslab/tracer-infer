@@ -294,20 +294,24 @@ let strtok src =
   {exec; check= empty_check_fun}
 
 
-let strcmp s1 s2 =
+let strcmp_model pname s1 s2 =
   let exec {location; bo_mem_opt} ~ret:_ mem =
     let add_libcall s m =
       let locs = Sem.eval s location bo_mem_opt mem |> Dom.Val.get_powloc in
       Dom.PowLocWithIdx.fold
         (fun loc acc_m ->
           let v = Dom.Mem.find loc acc_m in
-          Dom.Mem.update loc (Dom.Val.append_libcall v "strcmp" location) acc_m)
+          Dom.Mem.update loc (Dom.Val.append_libcall v pname location) acc_m)
         locs m
     in
     add_libcall s1 mem |> add_libcall s2
   in
   {exec; check= empty_check_fun}
 
+
+let strcmp s1 s2 = strcmp_model "strcmp" s1 s2
+
+let strncmp s1 s2 _ = strcmp_model "strncmp" s1 s2
 
 let printf pname str =
   let check {location; bo_mem_opt} mem condset =
@@ -797,6 +801,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"strncat" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> strncat
     ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy
     ; -"strcmp" <>$ capt_exp $+ capt_exp $+...$--> strcmp
+    ; -"strncmp" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> strncmp
     ; -"memcpy" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> memcpy "memcpy"
     ; -"memset" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> memset "memset"
     ; -"gnutls_x509_crt_get_subject_alt_name"
