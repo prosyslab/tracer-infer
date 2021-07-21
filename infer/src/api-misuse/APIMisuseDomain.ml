@@ -434,10 +434,10 @@ module Val = struct
     {v with traces= new_traces}
 
 
-  let append_libcall v f_name location =
+  let append_libcall v f_name args location =
     let user_input = get_user_input v in
     if UserInput.is_symbol user_input || UserInput.is_taint user_input then
-      append_trace_elem (Trace.make_libcall f_name location) v
+      append_trace_elem (Trace.make_libcall f_name args location) v
     else v
 
 

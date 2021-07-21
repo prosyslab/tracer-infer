@@ -191,7 +191,7 @@ let strdup str =
     let new_mem =
       Dom.PowLocWithIdx.fold
         (fun l m ->
-          let new_v = Dom.Val.append_libcall (Dom.Mem.find l m) "strdup" location in
+          let new_v = Dom.Val.append_libcall (Dom.Mem.find l m) "strdup" [str] location in
           Dom.Mem.update l new_v m)
         powloc mem
     in
@@ -214,7 +214,7 @@ let strcat_model fname dst src =
       (fun loc m ->
         let dst_deref_v = Dom.Mem.find loc mem in
         let join_v = Dom.Val.join src_deref_v dst_deref_v in
-        let new_v = Dom.Val.append_libcall join_v fname location in
+        let new_v = Dom.Val.append_libcall join_v fname [dst; src] location in
         Dom.Mem.add loc new_v m)
       dst_locs mem
   in
@@ -236,7 +236,7 @@ let strcpy dst src =
     let dst_locs = Sem.eval_locs dst bo_mem_opt mem in
     Dom.PowLocWithIdx.fold
       (fun loc m ->
-        let new_v = Dom.Val.append_libcall src_deref_v "strcpy" location in
+        let new_v = Dom.Val.append_libcall src_deref_v "strcpy" [dst; src] location in
         Dom.Mem.add loc new_v m)
       dst_locs mem
   in
@@ -284,7 +284,7 @@ let strtok src =
     let new_mem =
       Dom.PowLocWithIdx.fold
         (fun l m ->
-          let new_v = Dom.Val.append_libcall (Dom.Mem.find l m) "strtok" location in
+          let new_v = Dom.Val.append_libcall (Dom.Mem.find l m) "strtok" [src] location in
           Dom.Mem.update l new_v m)
         powloc mem
     in
@@ -301,7 +301,7 @@ let strcmp_model pname s1 s2 =
       Dom.PowLocWithIdx.fold
         (fun loc acc_m ->
           let v = Dom.Mem.find loc acc_m in
-          Dom.Mem.update loc (Dom.Val.append_libcall v pname location) acc_m)
+          Dom.Mem.update loc (Dom.Val.append_libcall v pname [s1; s2] location) acc_m)
         locs m
     in
     add_libcall s1 mem |> add_libcall s2

@@ -9,7 +9,7 @@ module Trace = struct
     | Store of Exp.t * Exp.t * Location.t
     | Prune of Exp.t * Location.t
     | Call of Procname.t * Location.t
-    | LibraryCall of Procname.t * Location.t
+    | LibraryCall of Procname.t * Exp.t list * Location.t
     | IntOverflow of Procname.t * Exp.t * Location.t
     | FormatString of Procname.t * Exp.t * Location.t
     | IntUnderflow of Procname.t * Exp.t * Location.t
@@ -35,7 +35,7 @@ module Trace = struct
 
   let make_call pname loc = Call (pname, loc)
 
-  let make_libcall str loc = LibraryCall (Procname.from_string_c_fun str, loc)
+  let make_libcall pname args loc = LibraryCall (Procname.from_string_c_fun pname, args, loc)
 
   let make_int_overflow pname e loc = IntOverflow (pname, e, loc)
 
@@ -74,9 +74,12 @@ module Trace = struct
           let feature = `List [`String "Call"; `String (Procname.to_string pname)] in
           Errlog.make_trace_element ~feature (depth + 1) l desc [] :: tail
           |> make_err_trace_rec depth t
-      | LibraryCall (pname, l) :: t ->
-          let desc = String.concat ~sep ["library_call"; Procname.to_string pname] in
-          let feature = `List [`String "LibraryCall"; `String (Procname.to_string pname)] in
+      | LibraryCall (pname, args, l) :: t ->
+          let args_str = args |> List.map ~f:Exp.to_string |> String.concat ~sep in
+          let desc = String.concat ~sep ["library_call"; Procname.to_string pname; args_str] in
+          let feature =
+            `List [`String "LibraryCall"; `String (Procname.to_string pname); `String args_str]
+          in
           Errlog.make_trace_element ~feature depth l desc [] :: tail |> make_err_trace_rec depth t
       | IntOverflow (pname, e, l) :: t ->
           let desc =
@@ -147,7 +150,7 @@ module Trace = struct
         F.fprintf fmt "PruneBinop (%a)" Location.pp l
     | Call (_, l) ->
         F.fprintf fmt "Call (%a)" Location.pp l
-    | LibraryCall (_, l) ->
+    | LibraryCall (_, _, l) ->
         F.fprintf fmt "LibraryCall (%a)" Location.pp l
     | IntOverflow (_, _, l) ->
         F.fprintf fmt "IntOverflow (%a)" Location.pp l
