@@ -379,7 +379,13 @@ let sprintf pname target str args =
   {exec; check}
 
 
-let snprintf pname _ _ str args = sprintf pname Exp.null str args
+let snprintf pname target _ str args =
+  let printf_model = printf pname str in
+  let sprintf_model = sprintf pname target str args in
+  let exec = sprintf_model.exec in
+  let check = printf_model.check in
+  {exec; check}
+
 
 let fprintf pname _ str = printf pname str
 
