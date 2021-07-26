@@ -818,10 +818,10 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"system" <>$ capt_exp $--> system "system"
     ; -"popen" <>$ capt_exp $+...$--> system "popen"
     ; -"execl" <>$ capt_exp $++$--> execl "execl"
+    ; -"execlp" <>$ capt_exp $++$--> execl "execlp"
+    ; -"execle" <>$ capt_exp $++$--> execl "execle"
     ; -"execv" <>$ capt_exp $+...$--> system "execv"
-    ; -"execle" <>$ capt_exp $+...$--> system "execle"
     ; -"execve" <>$ capt_exp $+ capt_exp $+...$--> execve "execve"
-    ; -"execlp" <>$ capt_exp $+...$--> system "execlp"
     ; -"execvp" <>$ capt_exp $+...$--> system "execvp"
     ; -"__infer_print__" <>$ capt_exp $--> infer_print ]
   in
