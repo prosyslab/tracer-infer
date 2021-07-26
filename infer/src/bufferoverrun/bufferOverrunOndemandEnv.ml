@@ -55,7 +55,8 @@ let mk pdesc =
             | None ->
                 None )
           | _ ->
-              L.(die InternalError) "Untyped expression is given." ) )
+              (* Kihong: Originally, L.(die InternalError) "Untyped expression is given." *)
+              None ) )
       | BoField.Field {typ= Some _ as some_typ} ->
           some_typ
       | BoField.Field {fn; prefix= x} -> (
