@@ -277,14 +277,14 @@ let memset pname _ _ len =
   {exec= empty_exec_fun; check}
 
 
-let strtok src =
+let strtok_model pname src =
   let exec {location; bo_mem_opt} ~ret mem =
     let v = Sem.eval src location bo_mem_opt mem in
     let powloc = Dom.Val.get_powloc v in
     let new_mem =
       Dom.PowLocWithIdx.fold
         (fun l m ->
-          let new_v = Dom.Val.append_libcall (Dom.Mem.find l m) "strtok" [src] location in
+          let new_v = Dom.Val.append_libcall (Dom.Mem.find l m) pname [src] location in
           Dom.Mem.update l new_v m)
         powloc mem
     in
@@ -293,6 +293,12 @@ let strtok src =
   in
   {exec; check= empty_check_fun}
 
+
+let strtok = strtok_model "strtok"
+
+let memchr = strtok_model "memchr"
+
+let strstr = strtok_model "strstr"
 
 let strcmp_model pname s1 s2 =
   let exec {location; bo_mem_opt} ~ret:_ mem =
@@ -503,6 +509,18 @@ let atoi str =
         (Dom.Val.get_powloc str_v) Dom.Val.bottom
     in
     Dom.Mem.add ret_loc ret_v mem
+  in
+  {exec; check= empty_check_fun}
+
+
+let strlen str =
+  let exec {bo_mem_opt; location} ~ret:_ mem =
+    let locs = Sem.eval str location bo_mem_opt mem |> Dom.Val.get_powloc in
+    Dom.PowLocWithIdx.fold
+      (fun loc acc_m ->
+        let v = Dom.Mem.find loc acc_m in
+        Dom.Mem.update loc (Dom.Val.append_libcall v "strlen" [str] location) acc_m)
+      locs mem
   in
   {exec; check= empty_check_fun}
 
@@ -802,6 +820,8 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"fgetc" <>$ capt_exp $--> getc
     ; -"sscanf" <>$ capt_exp $+ capt_exp $++$--> sscanf "sscanf"
     ; -"strtok" <>$ capt_exp $+...$--> strtok
+    ; -"memchr" <>$ capt_exp $+...$--> memchr
+    ; -"strstr" <>$ capt_exp $+...$--> strstr
     ; -"strdup" <>$ capt_exp $--> strdup
     ; -"strcat" <>$ capt_exp $+ capt_exp $+...$--> strcat
     ; -"strncat" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> strncat
@@ -815,6 +835,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"readdir" <>$ capt_exp $--> readdir
     ; -"getopt" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> getopt
     ; -"atoi" <>$ capt_exp $--> atoi
+    ; -"strlen" <>$ capt_exp $--> strlen
     ; -"system" <>$ capt_exp $--> system "system"
     ; -"popen" <>$ capt_exp $+...$--> system "popen"
     ; -"execl" <>$ capt_exp $++$--> execl "execl"
