@@ -355,6 +355,8 @@ let sprintf pname target str args =
               Dom.Val.join v v')
             ~init:v
         in
+        let exp_list = str :: List.map args ~f:(fun ProcnameDispatcher.Call.FuncArg.{exp} -> exp) in
+        let v = Dom.Val.append_libcall v pname exp_list location in
         let retloc = fst ret |> Loc.of_id |> Dom.LocWithIdx.of_loc in
         Dom.PowLocWithIdx.fold (fun l m -> Dom.Mem.add l v m) locs mem
         |> Dom.Mem.add retloc target_val
