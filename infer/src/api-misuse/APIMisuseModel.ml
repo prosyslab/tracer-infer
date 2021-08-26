@@ -183,6 +183,38 @@ let calloc n size =
   malloc "calloc" malloc_size
 
 
+let memset pname _ _ len =
+  let check {location; bo_mem_opt} mem condset =
+    let v = Sem.eval len location bo_mem_opt mem in
+    let make_funcs =
+      [ (Trace.make_buffer_overflow, Dom.CondSet.make_buffer_overflow)
+      ; (Trace.make_int_underflow, Dom.CondSet.make_underflow) ]
+    in
+    List.fold make_funcs ~init:condset ~f:(fun cd (make_trace, make_cond) ->
+        let v_with_sink =
+          Dom.Val.append_trace_elem (make_trace (Procname.from_string_c_fun pname) len location) v
+        in
+        Dom.CondSet.union (make_cond v_with_sink location) cd)
+  in
+  {exec= empty_exec_fun; check}
+
+
+let memcpy pname dst src len =
+  let exec {bo_mem_opt} ~ret:_ mem =
+    let src_locs = Sem.eval_locs src bo_mem_opt mem in
+    let src_deref_v =
+      Dom.PowLocWithIdx.fold
+        (fun loc v -> Dom.Mem.find loc mem |> Dom.Val.join v)
+        src_locs Dom.Val.bottom
+    in
+    let dst_locs = Sem.eval_locs dst bo_mem_opt mem in
+    Dom.PowLocWithIdx.fold (fun loc m -> Dom.Mem.add loc src_deref_v m) dst_locs mem
+  in
+  let memset_model = memset pname Exp.null Exp.null len in
+  let check = memset_model.check in
+  {exec; check}
+
+
 let strdup str =
   let exec {location; bo_mem_opt} ~ret mem =
     let id, _ = ret in
@@ -225,7 +257,7 @@ let strcat = strcat_model "strcat"
 
 let strncat dst src _n = strcat_model "strncat" dst src
 
-let strcpy dst src =
+let strcpy pname dst src =
   let exec {bo_mem_opt; location} ~ret:_ mem =
     let src_locs = Sem.eval_locs src bo_mem_opt mem in
     let src_deref_v =
@@ -236,45 +268,19 @@ let strcpy dst src =
     let dst_locs = Sem.eval_locs dst bo_mem_opt mem in
     Dom.PowLocWithIdx.fold
       (fun loc m ->
-        let new_v = Dom.Val.append_libcall src_deref_v "strcpy" [dst; src] location in
+        let new_v = Dom.Val.append_libcall src_deref_v pname [dst; src] location in
         Dom.Mem.add loc new_v m)
       dst_locs mem
   in
   {exec; check= empty_check_fun}
 
 
-let memcpy pname dst src len =
-  let exec {bo_mem_opt} ~ret:_ mem =
-    let src_locs = Sem.eval_locs src bo_mem_opt mem in
-    let src_deref_v =
-      Dom.PowLocWithIdx.fold
-        (fun loc v -> Dom.Mem.find loc mem |> Dom.Val.join v)
-        src_locs Dom.Val.bottom
-    in
-    let dst_locs = Sem.eval_locs dst bo_mem_opt mem in
-    Dom.PowLocWithIdx.fold (fun loc m -> Dom.Mem.add loc src_deref_v m) dst_locs mem
-  in
-  let check {location; bo_mem_opt} mem condset =
-    let v =
-      Sem.eval len location bo_mem_opt mem
-      |> Dom.Val.append_trace_elem
-           (Trace.make_int_underflow (Procname.from_string_c_fun pname) len location)
-    in
-    Dom.CondSet.union (Dom.CondSet.make_underflow v location) condset
-  in
+let strncpy pname dst src len =
+  let strcpy_model = strcpy pname dst src in
+  let memset_model = memset pname Exp.null Exp.null len in
+  let exec = strcpy_model.exec in
+  let check = memset_model.check in
   {exec; check}
-
-
-let memset pname _ _ len =
-  let check {location; bo_mem_opt} mem condset =
-    let v =
-      Sem.eval len location bo_mem_opt mem
-      |> Dom.Val.append_trace_elem
-           (Trace.make_int_underflow (Procname.from_string_c_fun pname) len location)
-    in
-    Dom.CondSet.union (Dom.CondSet.make_underflow v location) condset
-  in
-  {exec= empty_exec_fun; check}
 
 
 let strtok_model pname src =
@@ -387,11 +393,12 @@ let sprintf pname target str args =
   {exec; check}
 
 
-let snprintf pname target _ str args =
+let snprintf pname target len str args =
   let printf_model = printf pname str in
   let sprintf_model = sprintf pname target str args in
+  let memset_model = memset pname Exp.null Exp.null len in
   let exec = sprintf_model.exec in
-  let check = printf_model.check in
+  let check env mem condset = condset |> printf_model.check env mem |> memset_model.check env mem in
   {exec; check}
 
 
@@ -827,7 +834,8 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"strdup" <>$ capt_exp $--> strdup
     ; -"strcat" <>$ capt_exp $+ capt_exp $+...$--> strcat
     ; -"strncat" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> strncat
-    ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy
+    ; -"strcpy" <>$ capt_exp $+ capt_exp $+...$--> strcpy "strcpy"
+    ; -"strncpy" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> strncpy "strncpy"
     ; -"strcmp" <>$ capt_exp $+ capt_exp $+...$--> strcmp
     ; -"strncmp" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> strncmp
     ; -"memcpy" <>$ capt_exp $+ capt_exp $+ capt_exp $+...$--> memcpy "memcpy"
