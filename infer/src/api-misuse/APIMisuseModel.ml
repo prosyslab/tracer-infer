@@ -52,6 +52,34 @@ let fread pname buffer =
   {exec; check= empty_check_fun}
 
 
+let fgets pname buffer =
+  let exec {node; bo_mem_opt; location} ~ret:(ret_id, _) mem =
+    let locs = Sem.eval_locs buffer bo_mem_opt mem in
+    let traces =
+      Trace.make_input (Procname.from_string_c_fun pname) location
+      |> Trace.make_singleton |> Trace.Set.singleton
+    in
+    let v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
+    let ret_loc = Dom.LocWithIdx.of_loc (Loc.of_id ret_id) in
+    let ret_v = Dom.Val.of_pow_loc locs in
+    Dom.Mem.add ret_loc ret_v mem
+    |> Dom.PowLocWithIdx.fold
+         (fun loc mem ->
+           let mem = Dom.Mem.add loc v mem in
+           let l = Dom.LocWithIdx.to_loc loc in
+           Dom.Mem.fold
+             (fun l' _ mem ->
+               match l' with
+               | Loc field when Loc.is_field_of ~loc:l ~field_loc:field ->
+                   Dom.Mem.add l' v mem
+               | _ ->
+                   mem)
+             mem mem)
+         locs
+  in
+  {exec; check= empty_check_fun}
+
+
 let slurp_read _ buffer = fread "slurp_read" buffer
 
 let fscanf _ _ args =
@@ -257,6 +285,22 @@ let strcat = strcat_model "strcat"
 
 let strncat dst src _n = strcat_model "strncat" dst src
 
+let bof_user_input_model pname str =
+  let check {location; bo_mem_opt} mem condset =
+    let v = Sem.eval str location bo_mem_opt mem in
+    let v_powloc = v |> Dom.Val.get_powloc in
+    let user_input_val =
+      Dom.PowLocWithIdx.fold
+        (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
+        v_powloc Dom.Val.bottom
+      |> Dom.Val.append_trace_elem
+           (Trace.make_buffer_overflow (Procname.from_string_c_fun pname) str location)
+    in
+    Dom.CondSet.union (Dom.CondSet.make_buffer_overflow user_input_val location) condset
+  in
+  {exec= empty_exec_fun; check}
+
+
 let printf pname str =
   let check {location; bo_mem_opt} mem condset =
     let v = Sem.eval str location bo_mem_opt mem in
@@ -272,8 +316,9 @@ let printf pname str =
   in
   {exec= empty_exec_fun; check}
 
+
 let strcpy pname dst src =
-  let printf_model = printf "strcpy" src in
+  let bof_model = bof_user_input_model "strcpy" src in
   let exec {bo_mem_opt; location} ~ret:_ mem =
     let src_locs = Sem.eval_locs src bo_mem_opt mem in
     let src_deref_v =
@@ -288,7 +333,7 @@ let strcpy pname dst src =
         Dom.Mem.add loc new_v m)
       dst_locs mem
   in
-  {exec; check= printf_model.check}
+  {exec; check= bof_model.check}
 
 
 let strncpy pname dst src len =
@@ -340,9 +385,6 @@ let strcmp_model pname s1 s2 =
 let strcmp s1 s2 = strcmp_model "strcmp" s1 s2
 
 let strncmp s1 s2 _ = strcmp_model "strncmp" s1 s2
-
-
-
 
 let sprintf pname target str args =
   let printf_model = printf pname str in
@@ -410,6 +452,7 @@ let fprintf pname _ str = printf pname str
 let vfprintf = fprintf "vfprintf"
 
 let sscanf _ source _ args =
+  let bof_model = bof_user_input_model "sscanf" source in
   let exec {location; bo_mem_opt} ~ret:_ mem =
     let source_val = Sem.eval source location bo_mem_opt mem in
     List.fold args
@@ -422,7 +465,7 @@ let sscanf _ source _ args =
           ploc mem)
       ~init:mem
   in
-  {exec; check= empty_check_fun}
+  {exec; check= bof_model.check}
 
 
 let gnutls_x509_crt_get_subject_alt_name _ _ ret_addr =
@@ -808,7 +851,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"fscanf" <>$ capt_exp $+ capt_exp $++$--> fscanf
     ; -"slurp_read" <>$ capt_exp $+ capt_exp $+...$--> slurp_read
     ; -"g_byte_array_append" <>$ capt_exp $+ capt_exp $+...$--> g_byte_array_append
-    ; -"fgets" <>$ capt_exp $+...$--> fread "fgets"
+    ; -"fgets" <>$ capt_exp $+...$--> fgets "fgets"
     ; -"recv" <>$ capt_exp $+ capt_exp $+...$--> recv
     ; -"recvfrom" <>$ capt_exp $+ capt_exp $+...$--> recvfrom "recvfrom"
     ; -"malloc" <>$ capt_exp $--> malloc "malloc"
