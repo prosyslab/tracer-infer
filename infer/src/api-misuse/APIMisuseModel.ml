@@ -257,7 +257,23 @@ let strcat = strcat_model "strcat"
 
 let strncat dst src _n = strcat_model "strncat" dst src
 
+let printf pname str =
+  let check {location; bo_mem_opt} mem condset =
+    let v = Sem.eval str location bo_mem_opt mem in
+    let v_powloc = v |> Dom.Val.get_powloc in
+    let user_input_val =
+      Dom.PowLocWithIdx.fold
+        (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
+        v_powloc Dom.Val.bottom
+      |> Dom.Val.append_trace_elem
+           (Trace.make_format_string (Procname.from_string_c_fun pname) str location)
+    in
+    Dom.CondSet.union (Dom.CondSet.make_format user_input_val location) condset
+  in
+  {exec= empty_exec_fun; check}
+
 let strcpy pname dst src =
+  let printf_model = printf "strcpy" src in
   let exec {bo_mem_opt; location} ~ret:_ mem =
     let src_locs = Sem.eval_locs src bo_mem_opt mem in
     let src_deref_v =
@@ -272,7 +288,7 @@ let strcpy pname dst src =
         Dom.Mem.add loc new_v m)
       dst_locs mem
   in
-  {exec; check= empty_check_fun}
+  {exec; check= printf_model.check}
 
 
 let strncpy pname dst src len =
@@ -325,20 +341,7 @@ let strcmp s1 s2 = strcmp_model "strcmp" s1 s2
 
 let strncmp s1 s2 _ = strcmp_model "strncmp" s1 s2
 
-let printf pname str =
-  let check {location; bo_mem_opt} mem condset =
-    let v = Sem.eval str location bo_mem_opt mem in
-    let v_powloc = v |> Dom.Val.get_powloc in
-    let user_input_val =
-      Dom.PowLocWithIdx.fold
-        (fun loc v -> Dom.Val.join v (Dom.Mem.find_on_demand loc mem))
-        v_powloc Dom.Val.bottom
-      |> Dom.Val.append_trace_elem
-           (Trace.make_format_string (Procname.from_string_c_fun pname) str location)
-    in
-    Dom.CondSet.union (Dom.CondSet.make_format user_input_val location) condset
-  in
-  {exec= empty_exec_fun; check}
+
 
 
 let sprintf pname target str args =
