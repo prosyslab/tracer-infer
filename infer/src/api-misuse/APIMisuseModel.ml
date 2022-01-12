@@ -79,6 +79,7 @@ let fgets pname buffer =
   in
   {exec; check= empty_check_fun}
 
+let read _ buffer = fread "read" buffer
 
 let slurp_read _ buffer = fread "slurp_read" buffer
 
@@ -849,6 +850,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"std" &:: "basic_string" < any_typ &+...>:: "basic_string" &::.*--> empty
     ; -"fread" <>$ capt_exp $+...$--> fread "fread"
     ; -"fscanf" <>$ capt_exp $+ capt_exp $++$--> fscanf
+    ; -"read" <>$ capt_exp $+ capt_exp $+...$--> read
     ; -"slurp_read" <>$ capt_exp $+ capt_exp $+...$--> slurp_read
     ; -"g_byte_array_append" <>$ capt_exp $+ capt_exp $+...$--> g_byte_array_append
     ; -"fgets" <>$ capt_exp $+...$--> fgets "fgets"
