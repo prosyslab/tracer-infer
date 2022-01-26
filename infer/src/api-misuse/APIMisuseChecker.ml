@@ -361,6 +361,7 @@ module TransferFunctions = struct
               (Dom.Val.join v v', mem))
             locs (Dom.Val.bottom, mem)
         in
+        let v = {v with traces= TraceSet.append (Trace.make_load id e location) v.traces} in
         Dom.Mem.add id_loc v mem
     | Prune (exp, location, branch, if_kind) ->
         Sem.Prune.prune exp location bo_mem_opt mem branch if_kind

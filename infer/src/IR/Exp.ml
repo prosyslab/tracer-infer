@@ -49,8 +49,14 @@ and t =
 [@@deriving compare]
 
 let rec yojson_of_t = function
-  | Var _ | Lvar _ | Lfield _ | Lindex _ ->
-      `List [`String "Var"]
+  | Var id ->
+      `List [`String "Var"; `String (Ident.to_string id)]
+  | Lvar pvar ->
+      `List [`String "Var"; `String (Pvar.to_string pvar)]
+  | Lfield (t, fn, _) ->
+      `List [`String "Var"; yojson_of_t t; `String (Fieldname.to_string fn)]
+  | Lindex (t1, t2) ->
+      `List [`String "Var"; yojson_of_t t1; yojson_of_t t2]
   | UnOp (uop, t, _) ->
       `List [`String "UnOp"; Unop.yojson_of_t uop; yojson_of_t t]
   | BinOp (bop, t1, t2) ->

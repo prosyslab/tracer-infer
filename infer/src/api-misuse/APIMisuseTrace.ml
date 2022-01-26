@@ -6,6 +6,9 @@ module Trace = struct
   type elem =
     | SymbolDecl of AbsLoc.Loc.t
     | Input of Procname.t * Location.t
+    | SourceArg of Procname.t * Exp.t * Location.t
+    | SourceRet of Procname.t * Ident.t * Location.t
+    | Load of Ident.t * Exp.t * Location.t
     | Store of Exp.t * Exp.t * Location.t
     | Prune of Exp.t * Location.t
     | Call of Procname.t * Location.t
@@ -28,6 +31,12 @@ module Trace = struct
   let make_singleton elem = [elem]
 
   let make_input pname loc = Input (pname, loc)
+
+  let make_source_arg pname buf loc = SourceArg (pname, buf, loc)
+
+  let make_source_ret pname ret loc = SourceRet (pname, ret, loc)
+
+  let make_load id e loc = Load (id, e, loc)
 
   let make_store e1 e2 loc = Store (e1, e2, loc)
 
@@ -60,6 +69,18 @@ module Trace = struct
       | Input (pname, l) :: t ->
           let desc = String.concat ~sep ["input"; Procname.to_string pname] in
           let feature = `List [`String "Input"; `String (Procname.to_string pname)] in
+          Errlog.make_trace_element ~feature depth l desc [] :: tail |> make_err_trace_rec depth t
+      | SourceArg (pname, e, l) :: t ->
+          let desc = String.concat ~sep ["Source"; Procname.to_string pname; Exp.to_string e] in
+          let feature = `List [`String "Source"; `String (Procname.to_string pname); Exp.yojson_of_t e] in
+          Errlog.make_trace_element ~feature depth l desc [] :: tail |> make_err_trace_rec depth t
+      | SourceRet (pname, id, l) :: t ->
+          let desc = String.concat ~sep ["Source"; Procname.to_string pname; Ident.to_string id] in
+          let feature = `List [`String "Source"; `String (Procname.to_string pname); `String (Ident.to_string id)] in
+          Errlog.make_trace_element ~feature depth l desc [] :: tail |> make_err_trace_rec depth t
+      | Load (id, e, l) :: t ->
+          let desc = String.concat ~sep ["Load"; Ident.to_string id; Exp.to_string e] in
+          let feature = `List [`String "Load"; `String (Ident.to_string id); Exp.yojson_of_t e] in
           Errlog.make_trace_element ~feature depth l desc [] :: tail |> make_err_trace_rec depth t
       | Store (e1, e2, l) :: t ->
           let desc = String.concat ~sep ["store"; Exp.to_string e1; Exp.to_string e2] in
@@ -137,6 +158,8 @@ module Trace = struct
             true
         | Input (_, input_loc) ->
             Location.equal src_loc input_loc
+        | SourceArg (_, _, input_loc) | SourceRet(_, _, input_loc) ->
+            Location.equal src_loc input_loc
         | _ ->
             false)
 
@@ -144,6 +167,10 @@ module Trace = struct
   let pp_elem fmt = function
     | Input (_, l) ->
         F.fprintf fmt "Input (%a)" Location.pp l
+    | SourceArg (_, _ , l) | SourceRet (_, _, l) ->
+        F.fprintf fmt "Source (%a)" Location.pp l
+    | Load (_, _, l) ->
+        F.fprintf fmt "Load (%a)" Location.pp l
     | Store (_, _, l) ->
         F.fprintf fmt "Store (%a)" Location.pp l
     | Prune (_, l) ->

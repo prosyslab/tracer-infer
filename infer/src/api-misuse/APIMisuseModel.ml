@@ -33,7 +33,7 @@ let fread pname buffer =
     Dom.PowLocWithIdx.fold
       (fun loc mem ->
         let traces =
-          Trace.make_input (Procname.from_string_c_fun pname) location
+          Trace.make_source_arg (Procname.from_string_c_fun pname) buffer location
           |> Trace.make_singleton |> Trace.Set.singleton
         in
         let v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
@@ -56,7 +56,7 @@ let fgets pname buffer =
   let exec {node; bo_mem_opt; location} ~ret:(ret_id, _) mem =
     let locs = Sem.eval_locs buffer bo_mem_opt mem in
     let traces =
-      Trace.make_input (Procname.from_string_c_fun pname) location
+      Trace.make_source_arg (Procname.from_string_c_fun pname) buffer location
       |> Trace.make_singleton |> Trace.Set.singleton
     in
     let v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
@@ -138,7 +138,7 @@ let getc _ =
   let exec {node; location} ~ret mem =
     let id, _ = ret in
     let traces =
-      Trace.make_input (Procname.from_string_c_fun "getc") location
+      Trace.make_source_ret (Procname.from_string_c_fun "getc") id location
       |> Trace.make_singleton |> Trace.Set.singleton
     in
     let v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
@@ -151,7 +151,7 @@ let getc _ =
 let getenv _ =
   let exec {node; bo_mem_opt; location} ~ret:(ret_id, _) mem =
     let traces =
-      Trace.make_input (Procname.from_string_c_fun "getenv") location
+      Trace.make_source_ret (Procname.from_string_c_fun "getenv") ret_id location
       |> Trace.make_singleton |> Trace.Set.singleton
     in
     let user_input_v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
@@ -499,7 +499,7 @@ let gnutls_x509_crt_get_subject_alt_name _ _ ret_addr =
 let readdir _ =
   let exec {pname; node; node_hash; location} ~ret:(ret_id, _) mem =
     let traces =
-      Trace.make_input (Procname.from_string_c_fun "readdir") location
+      Trace.make_source_ret (Procname.from_string_c_fun "readdir") ret_id location
       |> Trace.make_singleton |> Trace.Set.singleton
     in
     let user_input_v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
@@ -533,9 +533,9 @@ let readdir _ =
 
 
 let getopt _ _ _ =
-  let exec {node; node_hash; location} ~ret:_ mem =
+  let exec {node; node_hash; location} ~ret:(ret_id, _) mem =
     let traces =
-      Trace.make_input (Procname.from_string_c_fun "getopt") location
+      Trace.make_source_ret (Procname.from_string_c_fun "getopt") ret_id location
       |> Trace.make_singleton |> Trace.Set.singleton
     in
     let user_input_v = Dom.UserInput.make node location |> Dom.Val.of_user_input ~traces in
