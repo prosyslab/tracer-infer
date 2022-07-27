@@ -286,19 +286,39 @@ module IntUnderflow = struct
 end
 
 module Allocated = struct
-  type t = Bot | Top [@@deriving compare, equal]
+  type t = Bot | Top | Alloc | Free [@@deriving compare, equal]
 
   let bottom = Bot
 
   let top = Top
 
-  let is_bottom t = match t with Bot -> true | Top -> false
+  let alloc = Alloc
 
-  let join x y = match (x, y) with Bot, Bot -> Bot | _, Top -> Top | Top, _ -> Top
+  let free = Free
+
+  let is_bottom t = match t with Bot -> true | _ -> false
+
+  let may_freed t = match t with Free | Top -> true | _ -> false
+
+  let join x y =
+    match (x, y) with
+    | Bot, Bot ->
+        Bot
+    | Alloc, Alloc ->
+        Alloc
+    | Free, Free ->
+        Free
+    | _, Bot ->
+        x
+    | Bot, _ ->
+        y
+    | _, _ ->
+        Top
+
 
   let widen ~prev ~next ~num_iters:_ = join prev next
 
-  let to_string t = match t with Bot -> "Bot" | Top -> "Top"
+  let to_string t = match t with Bot -> "Bot" | Top -> "Top" | Alloc -> "Alloc" | Free -> "Free"
 
   let pp fmt t = F.fprintf fmt "%s" (to_string t)
 end
@@ -654,6 +674,11 @@ module Cond = struct
         ; loc: Location.t
         ; traces: (TraceSet.t[@compare.ignore])
         ; reported: bool }
+    | UseAfterFree of
+        { allocated: Allocated.t
+        ; loc: Location.t
+        ; traces: (TraceSet.t[@compare.ignore])
+        ; reported: bool }
   [@@deriving compare]
 
   let make_uninit absloc init loc =
@@ -684,6 +709,10 @@ module Cond = struct
     DoubleFree {allocated; loc; traces; reported= false}
 
 
+  let make_use_after_free {Val.allocated; traces} loc =
+    UseAfterFree {allocated; loc; traces; reported= false}
+
+
   let reported = function
     | UnInit cond ->
         UnInit {cond with reported= true}
@@ -699,6 +728,8 @@ module Cond = struct
         CmdInjection {cond with reported= true}
     | DoubleFree cond ->
         DoubleFree {cond with reported= true}
+    | UseAfterFree cond ->
+        UseAfterFree {cond with reported= true}
 
 
   let is_symbolic = function
@@ -709,7 +740,8 @@ module Cond = struct
     | FormatString _
     | BufferOverflow _
     | CmdInjection _
-    | DoubleFree _ ->
+    | DoubleFree _
+    | UseAfterFree _ ->
         (* TODO *)
         false
 
@@ -729,6 +761,8 @@ module Cond = struct
         cond.loc
     | DoubleFree cond ->
         cond.loc
+    | UseAfterFree cond ->
+        cond.loc
 
 
   let is_reported = function
@@ -745,6 +779,8 @@ module Cond = struct
     | CmdInjection cond ->
         cond.reported
     | DoubleFree cond ->
+        cond.reported
+    | UseAfterFree cond ->
         cond.reported
 
 
@@ -775,9 +811,7 @@ module Cond = struct
         UserInput.Elem.is_source cond.user_input_elem
     | CmdInjection cond ->
         UserInput.Elem.is_source cond.user_input_elem
-    | DoubleFree _ ->
-        false
-    | UnInit _ ->
+    | DoubleFree _ | UseAfterFree _ | UnInit _ ->
         false
 
 
@@ -793,13 +827,18 @@ module Cond = struct
         Some cond.user_input_elem
     | CmdInjection cond ->
         Some cond.user_input_elem
-    | DoubleFree _ ->
-        None
-    | UnInit _ ->
+    | DoubleFree _ | UseAfterFree _ | UnInit _ ->
         None
 
 
-  let is_double_free = function DoubleFree cond -> Allocated.is_bottom cond.allocated | _ -> false
+  let is_double_free = function DoubleFree cond -> Allocated.may_freed cond.allocated | _ -> false
+
+  let is_use_after_free = function
+    | UseAfterFree cond ->
+        Allocated.may_freed cond.allocated
+    | _ ->
+        false
+
 
   let subst
       {Subst.subst_powloc; subst_int_overflow; subst_int_underflow; subst_user_input; subst_traces}
@@ -868,6 +907,8 @@ module Cond = struct
             CmdInjection {cond with user_input_elem= elem; traces= subst_traces cond.traces})
     | DoubleFree cond ->
         [DoubleFree {cond with traces= subst_traces cond.traces}]
+    | UseAfterFree cond ->
+        [UseAfterFree {cond with traces= subst_traces cond.traces}]
 
 
   let pp fmt = function
@@ -890,6 +931,8 @@ module Cond = struct
         F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
           Location.pp cond.loc TraceSet.pp cond.traces
     | DoubleFree cond ->
+        F.fprintf fmt "{loc: %a, traces: %a}" Location.pp cond.loc TraceSet.pp cond.traces
+    | UseAfterFree cond ->
         F.fprintf fmt "{loc: %a, traces: %a}" Location.pp cond.loc TraceSet.pp cond.traces
 end
 
@@ -985,6 +1028,8 @@ module CondSet = struct
 
 
   let make_double_free (v : Val.t) loc = add (Cond.make_double_free v loc) bottom
+
+  let make_use_after_free (v : Val.t) loc = add (Cond.make_use_after_free v loc) bottom
 end
 
 module Summary = struct

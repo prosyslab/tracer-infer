@@ -560,6 +560,11 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
             Reporting.log_issue proc_desc err_log ~loc ~ltr_set APIMisuse IssueType.api_misuse
               "DoubleFree" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
+        | Dom.Cond.UseAfterFree c when Dom.Cond.is_use_after_free cond ->
+            let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
+            Reporting.log_issue proc_desc err_log ~loc ~ltr_set APIMisuse IssueType.api_misuse
+              "UseAfterFree" ;
+            Dom.CondSet.add (Dom.Cond.reported cond) condset
         | _ ->
             L.(debug Analysis Verbose) "no may under flow alarm \n" ;
             Dom.CondSet.add cond condset)

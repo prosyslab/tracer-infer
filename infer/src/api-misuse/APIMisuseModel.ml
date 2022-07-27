@@ -27,6 +27,17 @@ let empty_check_fun _ _ condset = condset
 
 let empty = {exec= empty_exec_fun; check= empty_check_fun}
 
+let use pname args ptr =
+  let check {location; bo_mem_opt} mem condset =
+    let v =
+      Sem.eval ptr location bo_mem_opt mem
+      |> Dom.Val.append_trace_elem (Trace.make_libcall pname args location)
+    in
+    Dom.CondSet.union (Dom.CondSet.make_use_after_free v location) condset
+  in
+  check
+
+
 let fread pname buffer =
   let exec {node; bo_mem_opt; location} ~ret:_ mem =
     let locs = Sem.eval_locs buffer bo_mem_opt mem in
@@ -188,7 +199,7 @@ let malloc pname size =
                   AbsLoc.PowLoc.join array_locs pow_locs
                   |> Dom.PowLocWithIdx.of_pow_loc |> Dom.Val.of_pow_loc
                 in
-                let allocated = Dom.Allocated.top in
+                let allocated = Dom.Allocated.alloc in
                 let traces =
                   Trace.make_allocate (Procname.from_string_c_fun pname) location
                   |> Trace.make_singleton |> Trace.Set.singleton
@@ -232,7 +243,7 @@ let free ptr =
               Trace.make_free (Procname.from_string_c_fun "free") ptr location
             in
             let new_v = Dom.Val.append_trace_elem free_trace_elem v in
-            let new_v = {new_v with allocated= Dom.Allocated.bottom} in
+            let new_v = {new_v with allocated= Dom.Allocated.free} in
             Dom.Mem.add alias_loc new_v mem |> Dom.Mem.add loc new_v
         | None ->
             mem )
@@ -376,7 +387,9 @@ let strncpy pname dst src len =
   let strcpy_model = strcpy pname dst src in
   let memset_model = memset pname Exp.null Exp.null len in
   let exec = strcpy_model.exec in
-  let check = memset_model.check in
+  let check env mem condset =
+    use "strncpy" [dst; src; len] dst env mem condset |> memset_model.check env mem
+  in
   {exec; check}
 
 
