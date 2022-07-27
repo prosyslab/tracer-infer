@@ -285,6 +285,24 @@ module IntUnderflow = struct
   let pp fmt x = F.fprintf fmt "%s" (to_string x)
 end
 
+module Allocated = struct
+  type t = Bot | Top [@@deriving compare, equal]
+
+  let bottom = Bot
+
+  let top = Top
+
+  let is_bottom t = match t with Bot -> true | Top -> false
+
+  let join x y = match (x, y) with Bot, Bot -> Bot | _, Top -> Top | Top, _ -> Top
+
+  let widen ~prev ~next ~num_iters:_ = join prev next
+
+  let to_string t = match t with Bot -> "Bot" | Top -> "Top"
+
+  let pp fmt t = F.fprintf fmt "%s" (to_string t)
+end
+
 module UserInput = struct
   module Source = struct
     type t = CFG.Node.t * Location.t
@@ -388,6 +406,7 @@ module Val = struct
     ; init: Init.t
     ; int_overflow: IntOverflow.t
     ; int_underflow: IntUnderflow.t
+    ; allocated: Allocated.t
     ; user_input: UserInput.t
     ; str: Str.t
     ; traces: (TraceSet.t[@compare.ignore]) }
@@ -398,6 +417,7 @@ module Val = struct
     ; init= Init.bottom
     ; int_overflow= IntOverflow.bottom
     ; int_underflow= IntUnderflow.bottom
+    ; allocated= Allocated.bottom
     ; user_input= UserInput.bottom
     ; str= Str.bottom
     ; traces= TraceSet.bottom }
@@ -446,6 +466,7 @@ module Val = struct
     ; init= Init.join lhs.init rhs.init
     ; int_overflow= IntOverflow.join lhs.int_overflow rhs.int_overflow
     ; int_underflow= IntUnderflow.join lhs.int_underflow rhs.int_underflow
+    ; allocated= Allocated.join lhs.allocated rhs.allocated
     ; user_input= UserInput.join lhs.user_input rhs.user_input
     ; str= Str.join lhs.str rhs.str
     ; traces= TraceSet.join lhs.traces rhs.traces }
@@ -456,6 +477,7 @@ module Val = struct
     ; init= Init.widen ~prev:prev.init ~next:next.init ~num_iters
     ; int_overflow= IntOverflow.widen ~prev:prev.int_overflow ~next:next.int_overflow ~num_iters
     ; int_underflow= IntUnderflow.widen ~prev:prev.int_underflow ~next:next.int_underflow ~num_iters
+    ; allocated= Allocated.widen ~prev:prev.allocated ~next:next.allocated ~num_iters
     ; user_input= UserInput.widen ~prev:prev.user_input ~next:next.user_input ~num_iters
     ; str= Str.widen ~prev:prev.str ~next:next.str ~num_iters
     ; traces= TraceSet.widen ~prev:prev.traces ~next:next.traces ~num_iters }
@@ -490,10 +512,11 @@ module Val = struct
 
   let pp fmt v =
     F.fprintf fmt
-      "{powloc: %a, init: %a, int_overflow: %a, int_underflow: %a, user_input: %a, str: %a, \
-       traces: %a}"
+      "{powloc: %a, init: %a, int_overflow: %a, int_underflow: %a, user_input: %a, allocated: %a, \
+       str: %a, traces: %a}"
       PowLocWithIdx.pp v.powloc Init.pp v.init IntOverflow.pp v.int_overflow IntUnderflow.pp
-      v.int_underflow UserInput.pp v.user_input Str.pp v.str TraceSet.pp v.traces
+      v.int_underflow UserInput.pp v.user_input Allocated.pp v.allocated Str.pp v.str TraceSet.pp
+      v.traces
 end
 
 module Mem = struct
@@ -626,6 +649,11 @@ module Cond = struct
         ; loc: Location.t
         ; traces: (TraceSet.t[@compare.ignore])
         ; reported: bool }
+    | DoubleFree of
+        { allocated: Allocated.t
+        ; loc: Location.t
+        ; traces: (TraceSet.t[@compare.ignore])
+        ; reported: bool }
   [@@deriving compare]
 
   let make_uninit absloc init loc =
@@ -652,6 +680,10 @@ module Cond = struct
     CmdInjection {user_input_elem; loc; traces; reported= false}
 
 
+  let make_double_free {Val.allocated; traces} loc =
+    DoubleFree {allocated; loc; traces; reported= false}
+
+
   let reported = function
     | UnInit cond ->
         UnInit {cond with reported= true}
@@ -665,12 +697,19 @@ module Cond = struct
         BufferOverflow {cond with reported= true}
     | CmdInjection cond ->
         CmdInjection {cond with reported= true}
+    | DoubleFree cond ->
+        DoubleFree {cond with reported= true}
 
 
   let is_symbolic = function
     | UnInit cond ->
         LocWithIdx.is_symbolic cond.absloc
-    | IntOverflow _ | IntUnderflow _ | FormatString _ | BufferOverflow _ | CmdInjection _ ->
+    | IntOverflow _
+    | IntUnderflow _
+    | FormatString _
+    | BufferOverflow _
+    | CmdInjection _
+    | DoubleFree _ ->
         (* TODO *)
         false
 
@@ -688,6 +727,8 @@ module Cond = struct
         cond.loc
     | CmdInjection cond ->
         cond.loc
+    | DoubleFree cond ->
+        cond.loc
 
 
   let is_reported = function
@@ -702,6 +743,8 @@ module Cond = struct
     | BufferOverflow cond ->
         cond.reported
     | CmdInjection cond ->
+        cond.reported
+    | DoubleFree cond ->
         cond.reported
 
 
@@ -732,6 +775,8 @@ module Cond = struct
         UserInput.Elem.is_source cond.user_input_elem
     | CmdInjection cond ->
         UserInput.Elem.is_source cond.user_input_elem
+    | DoubleFree _ ->
+        false
     | UnInit _ ->
         false
 
@@ -748,9 +793,13 @@ module Cond = struct
         Some cond.user_input_elem
     | CmdInjection cond ->
         Some cond.user_input_elem
+    | DoubleFree _ ->
+        None
     | UnInit _ ->
         None
 
+
+  let is_double_free = function DoubleFree cond -> Allocated.is_bottom cond.allocated | _ -> false
 
   let subst
       {Subst.subst_powloc; subst_int_overflow; subst_int_underflow; subst_user_input; subst_traces}
@@ -817,6 +866,8 @@ module Cond = struct
         in
         List.map substed_user_input_list ~f:(fun elem ->
             CmdInjection {cond with user_input_elem= elem; traces= subst_traces cond.traces})
+    | DoubleFree cond ->
+        [DoubleFree {cond with traces= subst_traces cond.traces}]
 
 
   let pp fmt = function
@@ -838,6 +889,8 @@ module Cond = struct
     | CmdInjection cond ->
         F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
           Location.pp cond.loc TraceSet.pp cond.traces
+    | DoubleFree cond ->
+        F.fprintf fmt "{loc: %a, traces: %a}" Location.pp cond.loc TraceSet.pp cond.traces
 end
 
 module CondSet = struct
@@ -929,6 +982,9 @@ module CondSet = struct
             v.traces
         in
         add (Cond.make_exec {v with traces} user_input_elem loc) cs)
+
+
+  let make_double_free (v : Val.t) loc = add (Cond.make_double_free v loc) bottom
 end
 
 module Summary = struct

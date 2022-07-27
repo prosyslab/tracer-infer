@@ -555,6 +555,11 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
             let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
             report_src_sink_pair cond ~ltr_set "CmdInjection" ;
             Dom.CondSet.add (Dom.Cond.reported cond) condset
+        | Dom.Cond.DoubleFree c when Dom.Cond.is_double_free cond ->
+            let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
+            Reporting.log_issue proc_desc err_log ~loc ~ltr_set APIMisuse IssueType.api_misuse
+              "DoubleFree" ;
+            Dom.CondSet.add (Dom.Cond.reported cond) condset
         | _ ->
             L.(debug Analysis Verbose) "no may under flow alarm \n" ;
             Dom.CondSet.add cond condset)

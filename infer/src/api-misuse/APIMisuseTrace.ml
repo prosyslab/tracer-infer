@@ -15,6 +15,8 @@ module Trace = struct
     | IntUnderflow of Procname.t * Exp.t * Location.t
     | CmdInjection of Procname.t * Exp.t * Location.t
     | BufferOverflow of Procname.t * Exp.t * Location.t
+    | Allocate of Procname.t * Location.t
+    | Free of Procname.t * Exp.t * Location.t
   [@@deriving compare, yojson_of]
 
   type t = elem list [@@deriving compare]
@@ -48,6 +50,10 @@ module Trace = struct
   let make_cmd_injection pname e loc = CmdInjection (pname, e, loc)
 
   let make_buffer_overflow pname e loc = BufferOverflow (pname, e, loc)
+
+  let make_allocate pname loc = Allocate (pname, loc)
+
+  let make_free pname e loc = Free (pname, e, loc)
 
   let of_symbol s = SymbolDecl (Allocsite.make_symbol s |> Loc.of_allocsite)
 
@@ -122,6 +128,16 @@ module Trace = struct
             `List [`String "BufferOverflow"; `String (Procname.to_string pname); Exp.yojson_of_t e]
           in
           Errlog.make_trace_element ~feature depth l desc [] :: tail |> make_err_trace_rec depth t
+      | Allocate (pname, l) :: t ->
+          let desc = String.concat ~sep ["allocate"; Procname.to_string pname] in
+          let feature = `List [`String "Allocate"; `String (Procname.to_string pname)] in
+          Errlog.make_trace_element ~feature depth l desc [] :: tail |> make_err_trace_rec depth t
+      | Free (pname, e, l) :: t ->
+          let desc = String.concat ~sep ["free"; Procname.to_string pname; Exp.to_string e] in
+          let feature =
+            `List [`String "Free"; `String (Procname.to_string pname); Exp.yojson_of_t e]
+          in
+          Errlog.make_trace_element ~feature depth l desc [] :: tail |> make_err_trace_rec depth t
       | SymbolDecl _ :: t ->
           make_err_trace_rec depth t tail
     in
@@ -162,6 +178,10 @@ module Trace = struct
         F.fprintf fmt "CmdInjection (%a)" Location.pp l
     | BufferOverflow (_, _, l) ->
         F.fprintf fmt "BufferOverflow (%a)" Location.pp l
+    | Allocate (_, l) ->
+        F.fprintf fmt "Allocate (%a)" Location.pp l
+    | Free (_, _, l) ->
+        F.fprintf fmt "Free (%a)" Location.pp l
     | SymbolDecl l ->
         F.fprintf fmt "Symbol (%a)" AbsLoc.Loc.pp l
 

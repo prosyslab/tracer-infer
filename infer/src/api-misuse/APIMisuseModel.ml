@@ -79,6 +79,7 @@ let fgets pname buffer =
   in
   {exec; check= empty_check_fun}
 
+
 let read _ buffer = fread "read" buffer
 
 let slurp_read _ buffer = fread "slurp_read" buffer
@@ -172,7 +173,7 @@ let getenv _ =
 
 
 let malloc pname size =
-  let exec {bo_mem_opt} ~ret:_ (mem : Sem.Mem.t) =
+  let exec {location; bo_mem_opt} ~ret:_ (mem : Sem.Mem.t) =
     match bo_mem_opt with
     | Some bomem ->
         (* not only the return variable but also all fields in case of struct *)
@@ -187,7 +188,12 @@ let malloc pname size =
                   AbsLoc.PowLoc.join array_locs pow_locs
                   |> Dom.PowLocWithIdx.of_pow_loc |> Dom.Val.of_pow_loc
                 in
-                Dom.Mem.add loc v mem
+                let allocated = Dom.Allocated.top in
+                let traces =
+                  Trace.make_allocate (Procname.from_string_c_fun pname) location
+                  |> Trace.make_singleton |> Trace.Set.singleton
+                in
+                Dom.Mem.add loc {v with allocated; traces} mem
             | Some _ ->
                 mem)
           bomem.post mem
@@ -210,6 +216,36 @@ let realloc _ size = malloc "realloc" size
 let calloc n size =
   let malloc_size = Exp.BinOp (Binop.Mult (Some Typ.IUInt), n, size) in
   malloc "calloc" malloc_size
+
+
+let free ptr =
+  let exec {location; bo_mem_opt} ~ret:_ mem =
+    match (ptr, bo_mem_opt) with
+    | Exp.Var id, Some bo_mem -> (
+        let loc = Var.of_id id |> AbsLoc.Loc.of_var |> Dom.LocWithIdx.of_loc in
+        let alias_targets = BoDomain.Mem.find_alias_id id bo_mem.pre in
+        match BoDomain.AliasTargets.find_simple_alias alias_targets with
+        | Some alias ->
+            let alias_loc = Dom.LocWithIdx.of_loc alias in
+            let v = Sem.eval ptr location bo_mem_opt mem in
+            let free_trace_elem =
+              Trace.make_free (Procname.from_string_c_fun "free") ptr location
+            in
+            let new_v = Dom.Val.append_trace_elem free_trace_elem v in
+            let new_v = {new_v with allocated= Dom.Allocated.bottom} in
+            Dom.Mem.add alias_loc new_v mem |> Dom.Mem.add loc new_v
+        | None ->
+            mem )
+    | _ ->
+        mem
+  in
+  let check {location; bo_mem_opt} mem condset =
+    let v = Sem.eval ptr location bo_mem_opt mem in
+    let free_trace_elem = Trace.make_free (Procname.from_string_c_fun "free") ptr location in
+    let new_v = Dom.Val.append_trace_elem free_trace_elem v in
+    Dom.CondSet.union (Dom.CondSet.make_double_free new_v location) condset
+  in
+  {exec; check}
 
 
 let memset pname _ _ len =
@@ -319,7 +355,6 @@ let printf pname str =
 
 
 let strcpy pname dst src =
-  let bof_model = bof_user_input_model "strcpy" src in
   let exec {bo_mem_opt; location} ~ret:_ mem =
     let src_locs = Sem.eval_locs src bo_mem_opt mem in
     let src_deref_v =
@@ -334,7 +369,7 @@ let strcpy pname dst src =
         Dom.Mem.add loc new_v m)
       dst_locs mem
   in
-  {exec; check= bof_model.check}
+  {exec; check= empty_check_fun}
 
 
 let strncpy pname dst src len =
@@ -861,6 +896,7 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"__new_array" <>$ capt_exp $--> malloc "__new_array"
     ; -"realloc" <>$ capt_exp $+ capt_exp $+...$--> realloc
     ; -"calloc" <>$ capt_exp $+ capt_exp $+...$--> calloc
+    ; -"free" <>$ capt_exp $+...$--> free
     ; -"printf" <>$ capt_exp $+...$--> printf "printf"
     ; -"vprintf" <>$ capt_exp $+...$--> printf "vprintf"
     ; -"sprintf" <>$ capt_exp $+ capt_exp $++$--> sprintf "sprintf"
