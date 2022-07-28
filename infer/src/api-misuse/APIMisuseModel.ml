@@ -27,13 +27,30 @@ let empty_check_fun _ _ condset = condset
 
 let empty = {exec= empty_exec_fun; check= empty_check_fun}
 
-let use pname args ptr =
+let use_val pname args ptr =
   let check {location; bo_mem_opt} mem condset =
-    let v =
-      Sem.eval ptr location bo_mem_opt mem
-      |> Dom.Val.append_trace_elem (Trace.make_libcall pname args location)
-    in
-    Dom.CondSet.union (Dom.CondSet.make_use_after_free v location) condset
+    let v = Sem.eval ptr location bo_mem_opt mem in
+    Dom.CondSet.union
+      (Dom.CondSet.make_use_after_free
+         (Dom.Val.append_trace_elem (Trace.make_libcall pname args location) v)
+         location)
+      condset
+  in
+  check
+
+
+let use_ptr pname args ptr =
+  let check {location; bo_mem_opt} mem condset =
+    let ptr_v = Sem.eval ptr location bo_mem_opt mem in
+    Dom.PowLocWithIdx.fold
+      (fun l cs ->
+        let v = Dom.Mem.find l mem in
+        Dom.CondSet.union
+          (Dom.CondSet.make_use_after_free
+             (Dom.Val.append_trace_elem (Trace.make_libcall pname args location) v)
+             location)
+          cs)
+      (Dom.Val.get_powloc ptr_v) condset
   in
   check
 
@@ -60,7 +77,7 @@ let fread pname buffer =
           mem mem)
       locs mem
   in
-  {exec; check= empty_check_fun}
+  {exec; check= use_ptr pname [buffer] buffer}
 
 
 let fgets pname buffer =
@@ -88,7 +105,7 @@ let fgets pname buffer =
              mem mem)
          locs
   in
-  {exec; check= empty_check_fun}
+  {exec; check= use_ptr pname [buffer] buffer}
 
 
 let read _ buffer = fread "read" buffer
@@ -194,17 +211,20 @@ let malloc pname size =
             | None ->
                 let loc = Dom.LocWithIdx.of_loc l in
                 let array_locs = BoDomain.Val.get_array_locs v in
-                let pow_locs = BoDomain.Val.get_pow_loc v in
-                let v =
-                  AbsLoc.PowLoc.join array_locs pow_locs
-                  |> Dom.PowLocWithIdx.of_pow_loc |> Dom.Val.of_pow_loc
+                let pow_locs =
+                  BoDomain.Val.get_pow_loc v |> AbsLoc.PowLoc.join array_locs
+                  |> Dom.PowLocWithIdx.of_pow_loc
                 in
+                let v = Dom.Val.of_pow_loc pow_locs in
                 let allocated = Dom.Allocated.alloc in
                 let traces =
                   Trace.make_allocate (Procname.from_string_c_fun pname) location
                   |> Trace.make_singleton |> Trace.Set.singleton
                 in
-                Dom.Mem.add loc {v with allocated; traces} mem
+                Dom.Mem.add loc v mem
+                |> Dom.PowLocWithIdx.fold
+                     (fun l m -> Dom.Mem.add l {Dom.Val.bottom with allocated; traces} m)
+                     pow_locs
             | Some _ ->
                 mem)
           bomem.post mem
@@ -229,43 +249,40 @@ let calloc n size =
   malloc "calloc" malloc_size
 
 
-let free ptr =
+let free pname ptr =
   let exec {location; bo_mem_opt} ~ret:_ mem =
-    match (ptr, bo_mem_opt) with
-    | Exp.Var id, Some bo_mem -> (
-        let loc = Var.of_id id |> AbsLoc.Loc.of_var |> Dom.LocWithIdx.of_loc in
-        let alias_targets = BoDomain.Mem.find_alias_id id bo_mem.pre in
-        match BoDomain.AliasTargets.find_simple_alias alias_targets with
-        | Some alias ->
-            let alias_loc = Dom.LocWithIdx.of_loc alias in
-            let v = Sem.eval ptr location bo_mem_opt mem in
-            let free_trace_elem =
-              Trace.make_free (Procname.from_string_c_fun "free") ptr location
-            in
-            let new_v = Dom.Val.append_trace_elem free_trace_elem v in
-            let new_v = {new_v with allocated= Dom.Allocated.free} in
-            Dom.Mem.add alias_loc new_v mem |> Dom.Mem.add loc new_v
-        | None ->
-            mem )
-    | _ ->
-        mem
+    let ptr_v = Sem.eval ptr location bo_mem_opt mem in
+    let free_trace_elem = Trace.make_free (Procname.from_string_c_fun pname) ptr location in
+    Dom.PowLocWithIdx.fold
+      (fun l m ->
+        let v = Dom.Mem.find l m in
+        Dom.Mem.add l
+          (Dom.Val.append_trace_elem free_trace_elem {v with allocated= Dom.Allocated.Free})
+          m)
+      (Dom.Val.get_powloc ptr_v) mem
   in
   let check {location; bo_mem_opt} mem condset =
-    let v = Sem.eval ptr location bo_mem_opt mem in
-    let free_trace_elem = Trace.make_free (Procname.from_string_c_fun "free") ptr location in
-    let new_v = Dom.Val.append_trace_elem free_trace_elem v in
-    Dom.CondSet.union (Dom.CondSet.make_double_free new_v location) condset
+    let ptr_v = Sem.eval ptr location bo_mem_opt mem in
+    let free_trace_elem = Trace.make_free (Procname.from_string_c_fun pname) ptr location in
+    Dom.PowLocWithIdx.fold
+      (fun l cs ->
+        let v = Dom.Mem.find l mem in
+        Dom.CondSet.union
+          (Dom.CondSet.make_double_free (Dom.Val.append_trace_elem free_trace_elem v) location)
+          cs)
+      (Dom.Val.get_powloc ptr_v) condset
   in
   {exec; check}
 
 
-let memset pname _ _ len =
-  let check {location; bo_mem_opt} mem condset =
+let memset pname dst src len =
+  let check ({location; bo_mem_opt} as env) mem condset =
     let v = Sem.eval len location bo_mem_opt mem in
     let make_funcs =
       [ (Trace.make_buffer_overflow, Dom.CondSet.make_buffer_overflow)
       ; (Trace.make_int_underflow, Dom.CondSet.make_underflow) ]
     in
+    let condset = use_ptr pname [dst; src; len] dst env mem condset in
     List.fold make_funcs ~init:condset ~f:(fun cd (make_trace, make_cond) ->
         let v_with_sink =
           Dom.Val.append_trace_elem (make_trace (Procname.from_string_c_fun pname) len location) v
@@ -286,7 +303,7 @@ let memcpy pname dst src len =
     let dst_locs = Sem.eval_locs dst bo_mem_opt mem in
     Dom.PowLocWithIdx.fold (fun loc m -> Dom.Mem.add loc src_deref_v m) dst_locs mem
   in
-  let memset_model = memset pname Exp.null Exp.null len in
+  let memset_model = memset pname dst src len in
   let check = memset_model.check in
   {exec; check}
 
@@ -385,11 +402,9 @@ let strcpy pname dst src =
 
 let strncpy pname dst src len =
   let strcpy_model = strcpy pname dst src in
-  let memset_model = memset pname Exp.null Exp.null len in
+  let memset_model = memset pname dst src len in
   let exec = strcpy_model.exec in
-  let check env mem condset =
-    use "strncpy" [dst; src; len] dst env mem condset |> memset_model.check env mem
-  in
+  let check = memset_model.check in
   {exec; check}
 
 
@@ -407,7 +422,7 @@ let strtok_model pname src =
     let retloc = fst ret |> Loc.of_id |> Dom.LocWithIdx.of_loc in
     Dom.Mem.add retloc v new_mem
   in
-  {exec; check= empty_check_fun}
+  {exec; check= use_ptr pname [src] src}
 
 
 let strtok = strtok_model "strtok"
@@ -490,7 +505,7 @@ let sprintf pname target str args =
 let snprintf pname target len str args =
   let printf_model = printf pname str in
   let sprintf_model = sprintf pname target str args in
-  let memset_model = memset pname Exp.null Exp.null len in
+  let memset_model = memset pname target Exp.null len in
   let exec = sprintf_model.exec in
   let check env mem condset = condset |> printf_model.check env mem |> memset_model.check env mem in
   {exec; check}
@@ -614,7 +629,7 @@ let atoi str =
     in
     Dom.Mem.add ret_loc ret_v mem
   in
-  {exec; check= empty_check_fun}
+  {exec; check= use_ptr "atoi" [str] str}
 
 
 let strlen str =
@@ -626,7 +641,7 @@ let strlen str =
         Dom.Mem.update loc (Dom.Val.append_libcall v "strlen" [str] location) acc_m)
       locs mem
   in
-  {exec; check= empty_check_fun}
+  {exec; check= use_ptr "strlen" [str] str}
 
 
 let system pname str =
@@ -865,14 +880,30 @@ let check_overflow_underflow pname n =
   {exec= empty_exec_fun; check}
 
 
+let cou_and_use_val_wrapper pname =
+  let f data =
+    let cou_model = check_overflow_underflow pname data in
+    let use_check = use_val pname [data] data in
+    let check env mem condset = cou_model.check env mem condset |> use_check env mem in
+    {exec= empty_exec_fun; check}
+  in
+  f
+
+
 (* Functions for juliet testcases *)
-let print_hex_char_line = check_overflow_underflow "printHexCharLine"
+let print_hex_char_line = cou_and_use_val_wrapper "printHexCharLine"
 
-let print_int_line = check_overflow_underflow "printIntLine"
+let print_int_line = cou_and_use_val_wrapper "printIntLine"
 
-let print_unsigned_line = check_overflow_underflow "printUnsignedLine"
+let print_unsigned_line = cou_and_use_val_wrapper "printUnsignedLine"
 
-let print_long_long_line = check_overflow_underflow "printLongLongLine"
+let print_long_line = cou_and_use_val_wrapper "printLongLine"
+
+let print_long_long_line = cou_and_use_val_wrapper "printLongLongLine"
+
+let print_line data = {exec= empty_exec_fun; check= use_ptr "printLine" [data] data}
+
+let print_struct_line data = {exec= empty_exec_fun; check= use_ptr "printStructLine" [data] data}
 
 let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t list -> 'a =
   let open ProcnameDispatcher.Call in
@@ -906,10 +937,13 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     ; -"recvfrom" <>$ capt_exp $+ capt_exp $+...$--> recvfrom "recvfrom"
     ; -"malloc" <>$ capt_exp $--> malloc "malloc"
     ; -"g_malloc" <>$ capt_exp $--> malloc "g_malloc"
+    ; -"__new" <>$ capt_exp $--> malloc "__new"
     ; -"__new_array" <>$ capt_exp $--> malloc "__new_array"
     ; -"realloc" <>$ capt_exp $+ capt_exp $+...$--> realloc
     ; -"calloc" <>$ capt_exp $+ capt_exp $+...$--> calloc
-    ; -"free" <>$ capt_exp $+...$--> free
+    ; -"free" <>$ capt_exp $+...$--> free "free"
+    ; -"__delete" <>$ capt_exp $--> free "__delete"
+    ; -"__delete_array" <>$ capt_exp $--> free "__delete_array"
     ; -"printf" <>$ capt_exp $+...$--> printf "printf"
     ; -"vprintf" <>$ capt_exp $+...$--> printf "vprintf"
     ; -"sprintf" <>$ capt_exp $+ capt_exp $++$--> sprintf "sprintf"
@@ -957,7 +991,10 @@ let dispatch : Tenv.t -> Procname.t -> unit ProcnameDispatcher.Call.FuncArg.t li
     [ -"printHexCharLine" <>$ capt_exp $--> print_hex_char_line
     ; -"printIntLine" <>$ capt_exp $--> print_int_line
     ; -"printUnsignedLine" <>$ capt_exp $--> print_unsigned_line
-    ; -"printLongLongLine" <>$ capt_exp $--> print_long_long_line ]
+    ; -"printLongLine" <>$ capt_exp $--> print_long_line
+    ; -"printLongLongLine" <>$ capt_exp $--> print_long_long_line
+    ; -"printLine" <>$ capt_exp $--> print_line
+    ; -"printStructLine" <>$ capt_exp $--> print_struct_line ]
   in
   let models = if Config.juliet then List.append juliet_models base_models else base_models in
   make_dispatcher models

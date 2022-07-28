@@ -286,7 +286,8 @@ module IntUnderflow = struct
 end
 
 module Allocated = struct
-  type t = Bot | Top | Alloc | Free [@@deriving compare, equal]
+  type t = Bot | Top | Alloc | Free | Symbol of Symb.SymbolPath.partial
+  [@@deriving compare, equal]
 
   let bottom = Bot
 
@@ -300,6 +301,8 @@ module Allocated = struct
 
   let may_freed t = match t with Free | Top -> true | _ -> false
 
+  let make_symbol p = Symbol p
+
   let join x y =
     match (x, y) with
     | Bot, Bot ->
@@ -312,13 +315,27 @@ module Allocated = struct
         x
     | Bot, _ ->
         y
+    | Symbol _, Symbol _ ->
+        if equal x y then x else Top
     | _, _ ->
         Top
 
 
   let widen ~prev ~next ~num_iters:_ = join prev next
 
-  let to_string t = match t with Bot -> "Bot" | Top -> "Top" | Alloc -> "Alloc" | Free -> "Free"
+  let to_string t =
+    match t with
+    | Bot ->
+        "Bot"
+    | Top ->
+        "Top"
+    | Alloc ->
+        "Alloc"
+    | Free ->
+        "Free"
+    | Symbol s ->
+        F.asprintf "%a" Symb.SymbolPath.pp_partial s
+
 
   let pp fmt t = F.fprintf fmt "%s" (to_string t)
 end
@@ -405,6 +422,7 @@ module Subst = struct
     { subst_powloc: Loc.t -> PowLoc.t
     ; subst_int_overflow: IntOverflow.t -> IntOverflow.t
     ; subst_int_underflow: IntUnderflow.t -> IntUnderflow.t
+    ; subst_allocated: Allocated.t -> Allocated.t
     ; subst_user_input: UserInput.t -> UserInput.t
     ; subst_traces: TraceSet.t -> TraceSet.t }
 
@@ -412,6 +430,7 @@ module Subst = struct
     { subst_powloc= (fun loc -> AbsLoc.PowLoc.singleton loc)
     ; subst_int_overflow= Fun.id
     ; subst_int_underflow= Fun.id
+    ; subst_allocated= Fun.id
     ; subst_user_input= Fun.id
     ; subst_traces= Fun.id }
 
@@ -463,6 +482,8 @@ module Val = struct
 
   let get_int_underflow v = v.int_underflow
 
+  let get_allocated v = v.allocated
+
   let get_user_input v = v.user_input
 
   let get_traces v = v.traces
@@ -512,10 +533,16 @@ module Val = struct
     && Str.leq ~lhs:lhs.str ~rhs:rhs.str
 
 
-  let subst {Subst.subst_int_overflow; subst_int_underflow; subst_user_input; subst_traces} v =
+  let subst
+      { Subst.subst_int_overflow
+      ; subst_int_underflow
+      ; subst_allocated
+      ; subst_user_input
+      ; subst_traces } v =
     { v with
       int_overflow= subst_int_overflow v.int_overflow
     ; int_underflow= subst_int_underflow v.int_underflow
+    ; allocated= subst_allocated v.allocated
     ; user_input= subst_user_input v.user_input
     ; traces= subst_traces v.traces }
 
@@ -527,7 +554,8 @@ module Val = struct
     let user_input = UserInput.make_symbol p in
     let int_overflow = IntOverflow.make_symbol p in
     let int_underflow = IntUnderflow.make_symbol p in
-    {bottom with powloc; int_overflow; int_underflow; user_input; traces}
+    let allocated = Allocated.make_symbol p in
+    {bottom with powloc; int_overflow; int_underflow; allocated; user_input; traces}
 
 
   let pp fmt v =
@@ -841,8 +869,12 @@ module Cond = struct
 
 
   let subst
-      {Subst.subst_powloc; subst_int_overflow; subst_int_underflow; subst_user_input; subst_traces}
-      mem = function
+      { Subst.subst_powloc
+      ; subst_int_overflow
+      ; subst_int_underflow
+      ; subst_allocated
+      ; subst_user_input
+      ; subst_traces } mem = function
     | UnInit cond -> (
       match cond.absloc with
       | Loc l -> (
@@ -906,9 +938,13 @@ module Cond = struct
         List.map substed_user_input_list ~f:(fun elem ->
             CmdInjection {cond with user_input_elem= elem; traces= subst_traces cond.traces})
     | DoubleFree cond ->
-        [DoubleFree {cond with traces= subst_traces cond.traces}]
+        [ DoubleFree
+            {cond with allocated= subst_allocated cond.allocated; traces= subst_traces cond.traces}
+        ]
     | UseAfterFree cond ->
-        [UseAfterFree {cond with traces= subst_traces cond.traces}]
+        [ UseAfterFree
+            {cond with allocated= subst_allocated cond.allocated; traces= subst_traces cond.traces}
+        ]
 
 
   let pp fmt = function
@@ -931,9 +967,11 @@ module Cond = struct
         F.fprintf fmt "{user_input: %a, loc: %a, traces: %a}" UserInput.Elem.pp cond.user_input_elem
           Location.pp cond.loc TraceSet.pp cond.traces
     | DoubleFree cond ->
-        F.fprintf fmt "{loc: %a, traces: %a}" Location.pp cond.loc TraceSet.pp cond.traces
+        F.fprintf fmt "{allocated: %a, loc: %a, traces: %a}" Allocated.pp cond.allocated Location.pp
+          cond.loc TraceSet.pp cond.traces
     | UseAfterFree cond ->
-        F.fprintf fmt "{loc: %a, traces: %a}" Location.pp cond.loc TraceSet.pp cond.traces
+        F.fprintf fmt "{allocated: %a, loc: %a, traces: %a}" Allocated.pp cond.allocated Location.pp
+          cond.loc TraceSet.pp cond.traces
 end
 
 module CondSet = struct

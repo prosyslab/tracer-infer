@@ -194,10 +194,24 @@ let make_subst_int_underflow p exp typ_exp location bo_mem mem subst_int_underfl
   |> subst_int_underflow
 
 
+let make_subst_allocated p exp typ_exp location bo_mem mem subst_allocated s =
+  ( match s with
+  | Dom.Allocated.Symbol sym -> (
+    match symbol_subst sym p exp typ_exp location bo_mem mem with
+    | Some v ->
+        Dom.Val.get_allocated v
+    | None ->
+        s )
+  | _ ->
+      s )
+  |> subst_allocated
+
+
 let rec make_subst callee_pname formals actuals location bo_mem mem
     ( { Dom.Subst.subst_powloc
       ; subst_int_overflow
       ; subst_int_underflow
+      ; subst_allocated
       ; subst_user_input
       ; subst_traces } as subst ) =
   match (formals, actuals) with
@@ -213,6 +227,7 @@ let rec make_subst callee_pname formals actuals location bo_mem mem
             make_subst_int_overflow p exp typ_exp location bo_mem mem subst_int_overflow
         ; subst_int_underflow=
             make_subst_int_underflow p exp typ_exp location bo_mem mem subst_int_underflow
+        ; subst_allocated= make_subst_allocated p exp typ_exp location bo_mem mem subst_allocated
         ; subst_user_input= make_subst_user_input p exp typ_exp location bo_mem mem subst_user_input
         ; subst_traces=
             make_subst_traces callee_pname p exp typ_exp location bo_mem mem subst_traces }
