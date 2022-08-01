@@ -286,7 +286,7 @@ module IntUnderflow = struct
 end
 
 module Allocated = struct
-  type t = Bot | Top | Alloc | Free | Symbol of Symb.SymbolPath.partial
+  type t = Bot | Top | Alloc | Free | Symbol of Symb.SymbolPath.partial | AS
   [@@deriving compare, equal]
 
   let bottom = Bot
@@ -299,7 +299,7 @@ module Allocated = struct
 
   let is_bottom t = match t with Bot -> true | _ -> false
 
-  let may_freed t = match t with Free | Top -> true | _ -> false
+  let may_freed t = match t with Free -> true | _ -> false
 
   let make_symbol p = Symbol p
 
@@ -316,8 +316,18 @@ module Allocated = struct
     | Bot, _ ->
         y
     | Symbol _, Symbol _ ->
-        if equal x y then x else Top
-    | _, _ ->
+        if equal x y then x else AS
+    | Alloc, Symbol _
+    | Symbol _, Alloc
+    | AS, Alloc
+    | Alloc, AS
+    | AS, Symbol _
+    | Symbol _, AS
+    | AS, AS ->
+        AS
+    | Free, Alloc | Alloc, Free | AS, Free | Free, AS | Symbol _, Free | Free, Symbol _ ->
+        Top
+    | Top, _ | _, Top ->
         Top
 
 
@@ -335,6 +345,8 @@ module Allocated = struct
         "Free"
     | Symbol s ->
         F.asprintf "%a" Symb.SymbolPath.pp_partial s
+    | AS ->
+        "AS"
 
 
   let pp fmt t = F.fprintf fmt "%s" (to_string t)
