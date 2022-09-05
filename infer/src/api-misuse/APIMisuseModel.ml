@@ -29,28 +29,34 @@ let empty = {exec= empty_exec_fun; check= empty_check_fun}
 
 let use_val pname args ptr =
   let check {location; bo_mem_opt} mem condset =
-    let v = Sem.eval ptr location bo_mem_opt mem in
-    Dom.CondSet.union
-      (Dom.CondSet.make_use_after_free
-         (Dom.Val.append_trace_elem (Trace.make_libcall pname args location) v)
-         location)
-      condset
+    let target_line = Location.of_line location in
+    if Config.juliet || List.mem Config.uaf_lines target_line ~equal:Int.equal then
+      let v = Sem.eval ptr location bo_mem_opt mem in
+      Dom.CondSet.union
+        (Dom.CondSet.make_use_after_free
+           (Dom.Val.append_trace_elem (Trace.make_libcall pname args location) v)
+           location)
+        condset
+    else condset
   in
   check
 
 
 let use_ptr pname args ptr =
   let check {location; bo_mem_opt} mem condset =
-    let ptr_v = Sem.eval ptr location bo_mem_opt mem in
-    Dom.PowLocWithIdx.fold
-      (fun l cs ->
-        let v = Dom.Mem.find l mem in
-        Dom.CondSet.union
-          (Dom.CondSet.make_use_after_free
-             (Dom.Val.append_trace_elem (Trace.make_libcall pname args location) v)
-             location)
-          cs)
-      (Dom.Val.get_powloc ptr_v) condset
+    let target_line = Location.of_line location in
+    if Config.juliet || List.mem Config.uaf_lines target_line ~equal:Int.equal then
+      let ptr_v = Sem.eval ptr location bo_mem_opt mem in
+      Dom.PowLocWithIdx.fold
+        (fun l cs ->
+          let v = Dom.Mem.find l mem in
+          Dom.CondSet.union
+            (Dom.CondSet.make_use_after_free
+               (Dom.Val.append_trace_elem (Trace.make_libcall pname args location) v)
+               location)
+            cs)
+        (Dom.Val.get_powloc ptr_v) condset
+    else condset
   in
   check
 
@@ -262,15 +268,18 @@ let free pname ptr =
       (Dom.Val.get_powloc ptr_v) mem
   in
   let check {location; bo_mem_opt} mem condset =
-    let ptr_v = Sem.eval ptr location bo_mem_opt mem in
-    let free_trace_elem = Trace.make_free (Procname.from_string_c_fun pname) ptr location in
-    Dom.PowLocWithIdx.fold
-      (fun l cs ->
-        let v = Dom.Mem.find l mem in
-        Dom.CondSet.union
-          (Dom.CondSet.make_double_free (Dom.Val.append_trace_elem free_trace_elem v) location)
-          cs)
-      (Dom.Val.get_powloc ptr_v) condset
+    let target_line = Location.of_line location in
+    if Config.juliet || List.mem Config.uaf_lines target_line ~equal:Int.equal then
+      let ptr_v = Sem.eval ptr location bo_mem_opt mem in
+      let free_trace_elem = Trace.make_free (Procname.from_string_c_fun pname) ptr location in
+      Dom.PowLocWithIdx.fold
+        (fun l cs ->
+          let v = Dom.Mem.find l mem in
+          Dom.CondSet.union
+            (Dom.CondSet.make_double_free (Dom.Val.append_trace_elem free_trace_elem v) location)
+            cs)
+        (Dom.Val.get_powloc ptr_v) condset
+    else condset
   in
   {exec; check}
 

@@ -2458,6 +2458,8 @@ and type_size =
     "Consider the size of types during analysis, e.g. cannot use an int pointer to write to a char"
 
 
+and uaf_lines = CLOpt.mk_string_list ~default:[] ~long:"uaf-lines" "Use after free bug target lines"
+
 and uninit_interproc =
   CLOpt.mk_bool ~long:"uninit-interproc" "Run uninit check in the experimental interprocedural mode"
 
@@ -3397,6 +3399,8 @@ and tv_limit = !tv_limit
 and tv_limit_filtered = !tv_limit_filtered
 
 and type_size = !type_size
+
+and uaf_lines = RevList.to_list !uaf_lines |> List.map ~f:int_of_string
 
 and uninit_interproc = !uninit_interproc
 

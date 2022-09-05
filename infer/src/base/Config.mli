@@ -649,6 +649,8 @@ val tv_limit_filtered : int
 
 val type_size : bool
 
+val uaf_lines : int list
+
 val uninit_interproc : bool
 
 val unsafe_malloc : bool

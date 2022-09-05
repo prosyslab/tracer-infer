@@ -28,6 +28,9 @@ val pp : Format.formatter -> t -> unit
 val pp_line : Format.formatter -> t -> unit
 (** print just the line information *)
 
+val of_line : t -> int
+(** get the line number of location *)
+
 val to_string : t -> string
 (** String representation of a location. *)
 

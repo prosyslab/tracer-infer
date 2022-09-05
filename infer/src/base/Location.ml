@@ -33,6 +33,8 @@ let pp_short f loc =
   if loc.col <> -1 then F.fprintf f ":%d" loc.col
 
 
+let of_line t = t.line
+
 let to_string loc = F.asprintf "%a" pp_short loc
 
 let yojson_of_t loc = `String (to_string loc)

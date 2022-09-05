@@ -428,7 +428,7 @@ module Analyzer = AbstractInterpreter.MakeRPO (TransferFunctions)
 let check_instr
     {interproc= {InterproceduralAnalysis.tenv; proc_desc}; get_summary; get_formals; all_proc}
     bo_mem_opt mem node instr condset =
-  let user_call callee_pname params location =
+  let user_call callee_pname params location condset =
     match (get_summary callee_pname, get_formals callee_pname) with
     | Some (Some api_summary, Some _), Some callee_formals ->
         let eval_sym =
@@ -439,28 +439,33 @@ let check_instr
     | _ ->
         condset
   in
-  match instr with
-  | Sil.Load {e; loc} ->
-      let locs =
-        Sem.eval_locs e bo_mem_opt mem
-        |> Dom.PowLocWithIdx.filter (function Dom.LocWithIdx.Idx (_, _) -> true | _ -> false)
+  let check_uaf e loc condset =
+    let target_line = Location.of_line loc in
+    if Config.juliet || List.mem Config.uaf_lines target_line ~equal:Int.equal then
+      let ptr_e =
+        match e with Exp.Lfield (exp, _, _) -> exp | Exp.Lindex (exp, _) -> exp | _ -> e
       in
+      let locs = Sem.eval_locs ptr_e bo_mem_opt mem in
       if Dom.PowLocWithIdx.is_empty locs then condset
       else
         let v =
           Dom.PowLocWithIdx.fold
             (fun l v -> Dom.Mem.find l mem |> Dom.Val.join v)
             locs Dom.Val.bottom
-          |> Dom.Val.get_init
         in
-        if Dom.Init.equal v Dom.Init.Init |> not then
-          let absloc = Dom.PowLocWithIdx.choose locs in
-          Dom.CondSet.add (Dom.Cond.make_uninit absloc Dom.Init.UnInit loc) condset
-        else condset
+        Dom.CondSet.union (Dom.CondSet.make_use_after_free v loc) condset
+    else condset
+  in
+  match instr with
+  | Sil.Load {e; loc} ->
+      check_uaf e loc condset
   | Sil.Call (_, Const (Cfun callee_pname), args, location, _) -> (
       let fun_arg_list =
         List.map args ~f:(fun (exp, typ) ->
             ProcnameDispatcher.Call.FuncArg.{exp; typ; arg_payload= ()})
+      in
+      let condset =
+        List.fold args ~f:(fun cs (exp, _) -> check_uaf exp location cs) ~init:condset
       in
       match Models.dispatch tenv callee_pname fun_arg_list with
       | Some {Models.check} ->
@@ -469,7 +474,7 @@ let check_instr
           let model_env = {Models.pname; node; node_hash; bo_mem_opt; location} in
           check model_env mem condset
       | None ->
-          user_call callee_pname args location )
+          user_call callee_pname args location condset )
   | Sil.Call ((_, ret_typ), _, params, location, _) ->
       let candidates = BufferOverrunUtils.get_func_candidates proc_desc all_proc ret_typ params in
       let candidates =
@@ -478,9 +483,9 @@ let check_instr
       in
       candidates
       |> List.fold_left
-           ~f:(fun condset att ->
+           ~f:(fun cs att ->
              let callee_pname = ProcAttributes.get_proc_name att in
-             user_call callee_pname params location |> APIMisuseDomain.CondSet.join condset)
+             user_call callee_pname params location condset |> APIMisuseDomain.CondSet.join cs)
            ~init:condset
   | _ ->
       condset
@@ -546,9 +551,6 @@ let report {interproc= {InterproceduralAnalysis.proc_desc; err_log}} condset =
               ()
         in
         match cond with
-        | Dom.Cond.UnInit _ when Dom.Cond.is_init cond |> not ->
-            Reporting.log_issue proc_desc err_log ~loc APIMisuse IssueType.api_misuse "UnInit" ;
-            Dom.CondSet.add (Dom.Cond.reported cond) condset
         | Dom.Cond.IntOverflow c when Dom.Cond.may_overflow cond ->
             let ltr_set = TraceSet.make_err_trace c.traces |> Option.some in
             report_src_sink_pair cond ~ltr_set "IntOverflow" ;
