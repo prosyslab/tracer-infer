@@ -11,16 +11,18 @@ set -e
 set -o pipefail
 set -u
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INFER_ROOT="$SCRIPT_DIR"
 DEPENDENCIES_DIR="$INFER_ROOT/facebook/dependencies"
 PLATFORM="$(uname)"
 SANDCASTLE=${SANDCASTLE:-}
 NCPU="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
-INFER_OPAM_DEFAULT_SWITCH="ocaml-variants.4.11.1+flambda"
+INFER_OPAM_DEFAULT_SWITCH="4.12.0+flambda"
+INFER_OPAM_DEFAULT_SWITCH_OPTIONS="--package=ocaml-
+variants.4.12.0+options,ocaml-option-flambda"
 INFER_OPAM_DEFAULT_COMPILER="$INFER_OPAM_DEFAULT_SWITCH"
 INFER_OPAM_SWITCH=${INFER_OPAM_SWITCH:-$INFER_OPAM_DEFAULT_SWITCH}
-INFER_OPAM_COMPILER=${INFER_OPAM_COMPILER:-$INFER_OPAM_DEFAULT_COMPILER}
+INFER_OPAM_SWITCH_OPTIONS=${INFER_OPAM_SWITCH_OPTIONS:-$INFER_OPAM_DEFAULT_SWITCH_OPTIONS}
 
 function usage() {
   echo "Usage: $0 [-y] [targets]"
@@ -74,33 +76,34 @@ while [[ $# -gt 0 ]]; do
       shift
       continue
       ;;
-    -h|--help)
+    -h | --help)
       usage
       exit 0
-     ;;
+      ;;
     --no-opam-lock)
       USE_OPAM_LOCK=no
       shift
       continue
-     ;;
+      ;;
     --user-opam-switch)
       USER_OPAM_SWITCH=yes
       shift
       continue
-     ;;
+      ;;
     --only-setup-opam)
       ONLY_SETUP_OPAM=yes
       shift
       continue
-     ;;
-    -y|--yes)
+      ;;
+    -y | --yes)
       INTERACTIVE=no
       shift
       continue
-     ;;
-     *)
+      ;;
+    *)
       usage
       exit 1
+      ;;
   esac
   shift
 done
@@ -118,30 +121,30 @@ if [ "$INTERACTIVE" == "no" ]; then
 fi
 # --yes by default for opam commands except if we are using the user's opam switch
 if [ "$INTERACTIVE" == "no" ] || [ "$USER_OPAM_SWITCH" == "no" ]; then
-    export OPAMYES=true
+  export OPAMYES=true
 fi
 
-setup_opam () {
-    opam var root 1>/dev/null 2>/dev/null || opam init --reinit --bare --no-setup &&
-    opam_retry opam_switch_create_if_needed "$INFER_OPAM_SWITCH" "$INFER_OPAM_COMPILER" &&
+setup_opam() {
+  opam var root 1>/dev/null 2>/dev/null || opam init --reinit --bare --no-setup &&
+    opam_retry opam_switch_create_if_needed "$INFER_OPAM_SWITCH" "$INFER_OPAM_SWITCH_OPTIONS" &&
     opam switch set "$INFER_OPAM_SWITCH"
 }
 
-install_opam_deps () {
-    local locked=
-    if [ "$USE_OPAM_LOCK" == yes ]; then
-        locked=--locked
-    fi
-    opam install --deps-only infer "$INFER_ROOT" $locked &&
+install_opam_deps() {
+  local locked=
+  if [ "$USE_OPAM_LOCK" == yes ]; then
+    locked=--locked
+  fi
+  opam install --deps-only infer "$INFER_ROOT" $locked &&
     if [ -n "$SANDCASTLE" ]; then
-        opam pin list | grep yojson || opam pin add yojson "${DEPENDENCIES_DIR}/yojson-1.7.0fix"
+      opam pin list | grep yojson || opam pin add yojson "${DEPENDENCIES_DIR}/yojson-1.7.0fix"
     fi
 }
 
 echo "initializing opam... " >&2
 . "$INFER_ROOT"/scripts/opam_utils.sh
 if [ "$USER_OPAM_SWITCH" == "no" ]; then
-    setup_opam
+  setup_opam
 fi
 eval $(SHELL=bash opam env)
 echo >&2
@@ -153,7 +156,7 @@ if [ "$ONLY_SETUP_OPAM" == "yes" ]; then
 fi
 
 echo "preparing build... " >&2
-./autogen.sh > /dev/null
+./autogen.sh >/dev/null
 
 if [ "$BUILD_CLANG" == "no" ]; then
   INFER_CONFIGURE_OPTS+=" --disable-c-analyzers"
@@ -185,14 +188,14 @@ if [ "$BUILD_CLANG" == "yes" ]; then
     confirm="n"
     printf "Are you sure you want to compile clang? (y/N) "
     if [ "$INTERACTIVE" == "no" ]; then
-        confirm="y"
-        echo "$confirm"
+      confirm="y"
+      echo "$confirm"
     else
-        read confirm
+      read confirm
     fi
 
     if [ "x$confirm" != "xy" ]; then
-        exit 0
+      exit 0
     fi
 
     # only run this script if we are definitely building clang
@@ -207,7 +210,8 @@ make -j "$JOBS" opt || (
   echo '    make clean' >&2
   echo "    '$0' $ORIG_ARGS" >&2
   echo >&2
-  exit 1)
+  exit 1
+)
 
 echo
 echo "*** Success! Infer is now built in '$SCRIPT_DIR/infer/bin/'."
