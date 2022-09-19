@@ -18,8 +18,7 @@ PLATFORM="$(uname)"
 SANDCASTLE=${SANDCASTLE:-}
 NCPU="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
 INFER_OPAM_DEFAULT_SWITCH="4.12.0+flambda"
-INFER_OPAM_DEFAULT_SWITCH_OPTIONS="--package=ocaml-
-variants.4.12.0+options,ocaml-option-flambda"
+INFER_OPAM_DEFAULT_SWITCH_OPTIONS="--package=ocaml-variants.4.12.0+options,ocaml-option-flambda"
 INFER_OPAM_DEFAULT_COMPILER="$INFER_OPAM_DEFAULT_SWITCH"
 INFER_OPAM_SWITCH=${INFER_OPAM_SWITCH:-$INFER_OPAM_DEFAULT_SWITCH}
 INFER_OPAM_SWITCH_OPTIONS=${INFER_OPAM_SWITCH_OPTIONS:-$INFER_OPAM_DEFAULT_SWITCH_OPTIONS}
@@ -60,50 +59,50 @@ ORIG_ARGS="$*"
 while [[ $# -gt 0 ]]; do
   opt_key="$1"
   case $opt_key in
-    all)
-      BUILD_CLANG=yes
-      BUILD_JAVA=yes
-      shift
-      continue
-      ;;
-    clang)
-      BUILD_CLANG=yes
-      shift
-      continue
-      ;;
-    java)
-      BUILD_JAVA=yes
-      shift
-      continue
-      ;;
-    -h | --help)
-      usage
-      exit 0
-      ;;
-    --no-opam-lock)
-      USE_OPAM_LOCK=no
-      shift
-      continue
-      ;;
-    --user-opam-switch)
-      USER_OPAM_SWITCH=yes
-      shift
-      continue
-      ;;
-    --only-setup-opam)
-      ONLY_SETUP_OPAM=yes
-      shift
-      continue
-      ;;
-    -y | --yes)
-      INTERACTIVE=no
-      shift
-      continue
-      ;;
-    *)
-      usage
-      exit 1
-      ;;
+  all)
+    BUILD_CLANG=yes
+    BUILD_JAVA=yes
+    shift
+    continue
+    ;;
+  clang)
+    BUILD_CLANG=yes
+    shift
+    continue
+    ;;
+  java)
+    BUILD_JAVA=yes
+    shift
+    continue
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  --no-opam-lock)
+    USE_OPAM_LOCK=no
+    shift
+    continue
+    ;;
+  --user-opam-switch)
+    USER_OPAM_SWITCH=yes
+    shift
+    continue
+    ;;
+  --only-setup-opam)
+    ONLY_SETUP_OPAM=yes
+    shift
+    continue
+    ;;
+  -y | --yes)
+    INTERACTIVE=no
+    shift
+    continue
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
   esac
   shift
 done
